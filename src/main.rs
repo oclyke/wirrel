@@ -3,7 +3,7 @@ use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 use wirrel::commits::{parse_subject, CommitKind};
 use wirrel::model::{self, Article, Model, Severity};
-use wirrel::{git, history_page, html, index_page, markdown, update_page};
+use wirrel::{frontmatter, git, history_page, html, index_page, markdown, update_page};
 use std::collections::HashMap;
 use skim::prelude::{unbounded, Skim, SkimItem, SkimItemReceiver, SkimItemSender, SkimOptionsBuilder};
 use std::borrow::Cow;
@@ -78,7 +78,7 @@ fn main() {
 fn load_model(cli: &Cli) -> Result<Model, Box<dyn Error>> {
     let commits = git::load(&cli.repo)?;
     let mut model = model::build_model(&commits, &cli.article_root);
-    enrich_titles(&cli.repo, &mut model);
+    enrich_from_files(&cli.repo, &mut model);
     Ok(model)
 }
 
@@ -86,7 +86,7 @@ fn load_model(cli: &Cli) -> Result<Model, Box<dyn Error>> {
 fn load_valid_model(cli: &Cli) -> Result<(Vec<git::RawCommit>, Model), Box<dyn Error>> {
     let commits = git::load(&cli.repo)?;
     let mut model = model::build_model(&commits, &cli.article_root);
-    enrich_titles(&cli.repo, &mut model);
+    enrich_from_files(&cli.repo, &mut model);
 
     let violations = collect_violations(cli, &commits, &model);
     let mut errors = 0;
@@ -120,9 +120,12 @@ fn collect_violations(cli: &Cli, commits: &[git::RawCommit], model: &Model) -> V
     violations
 }
 
-fn enrich_titles(repo: &Path, model: &mut Model) {
+/// The one place file-derived article state is filled in; everything else about
+/// an `Article` comes from the commit stream.
+fn enrich_from_files(repo: &Path, model: &mut Model) {
     for a in &mut model.articles {
         if let Ok(content) = fs::read_to_string(repo.join(&a.path)) {
+            a.frontmatter = frontmatter::split(&content).0;
             a.title = markdown::extract_title(&content);
         }
     }
@@ -263,10 +266,20 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         let rendered = markdown::render(&content, &model);
         let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
         let canonical = format!("{base}{}", html::url(&a.slug));
+        // A frontmatter title with no heading in the body has to lead the page
+        // itself, or the article renders with no visible title at all.
+        let lead = a
+            .frontmatter
+            .title
+            .as_deref()
+            .filter(|_| !markdown::has_heading(&content))
+            .map(|t| format!("<h1>{}</h1>\n", html::escape(t)))
+            .unwrap_or_default();
 
         let dir = out.join(&a.slug);
         fs::create_dir_all(&dir)?;
-        fs::write(dir.join("index.html"), html::page(&title, &canonical, &format!("{header}{rendered}")))?;
+        let body = format!("{header}{lead}{rendered}");
+        fs::write(dir.join("index.html"), html::page(&title, &canonical, &body))?;
     }
 
     // Generated pages: site index (with recent changes) and full history.

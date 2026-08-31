@@ -113,3 +113,45 @@ fn builds_update_page_with_diff() {
     assert!(html.contains("class=\"add\">+new line"));
     assert!(html.contains("class=\"del\">-old line"));
 }
+
+#[test]
+fn frontmatter_title_drives_the_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    git(repo, &["init", "-q"]);
+    git(repo, &["config", "user.email", "t@t.dev"]);
+    git(repo, &["config", "user.name", "t"]);
+
+    // No h1 at all: the frontmatter title supplants it.
+    fs::write(repo.join("src/willow.md"), "---\ntitle: A Willow\n---\njust prose\n").unwrap();
+    commit(repo, "create: willow");
+    // An h1 is present: the frontmatter title overrides it for the page title.
+    fs::write(repo.join("src/oak.md"), "---\ntitle: Real Oak\n---\n# stale oak\n").unwrap();
+    commit(repo, "create: oak");
+
+    let out = repo.join("dist");
+    let ok = Command::new(env!("CARGO_BIN_EXE_wirrel"))
+        .arg("--repo")
+        .arg(repo)
+        .arg("--article-root")
+        .arg("src")
+        .arg("--no-verify-signatures")
+        .arg("build")
+        .arg("--out")
+        .arg(&out)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+
+    let willow = fs::read_to_string(out.join("willow/index.html")).unwrap();
+    assert!(willow.contains("<title>A Willow</title>"));
+    assert!(willow.contains("<h1>A Willow</h1>"));
+    assert!(!willow.contains("title: A Willow"), "frontmatter leaked into the body");
+
+    let oak = fs::read_to_string(out.join("oak/index.html")).unwrap();
+    assert!(oak.contains("<title>Real Oak</title>"));
+    assert!(oak.contains("<h1>stale oak</h1>"));
+    assert_eq!(oak.matches("<h1>").count(), 1, "duplicated the heading");
+}

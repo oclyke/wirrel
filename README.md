@@ -10,13 +10,28 @@ renders pretty slug URLs, and `redirects` emits a map from every historical id
 and slug to its current URL. Articles nest — `parent/index.md` is `/parent/`,
 `parent/other.md` is `/parent/other/`.
 
+## Frontmatter
+
+An article may open with a `---` fenced metadata block of flat `key: value`
+lines. It is metadata, not content, so it never reaches the rendered page.
+
+```markdown
+---
+title: Choosing a Direction
+---
+```
+
+`title` overrides the first level-1 heading. With no heading in the body, the
+title supplants it: the page leads with an `<h1>` built from the frontmatter.
+Unrecognized keys are ignored.
+
 ## Commands
 
 - `wirrel index` — list articles (id, slug, title).
 - `wirrel check` — validate history: subject grammar, signatures, lineage, slug
   collisions, single-article moves, meta commits not changing articles, dangling
-  `/id/N/` links, missing titles, absolute self-links, and non-markdown files
-  under the article root.
+  `/id/N/` links, missing titles (no frontmatter `title` and no level-1
+  heading), absolute self-links, and non-markdown files under the article root.
 - `wirrel link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
 - `wirrel build --out dist` — render the site content: article pages (each with a
   created/updated header), a generated index (with recent changes), a full
@@ -32,6 +47,7 @@ Global flags: `--repo <path>` (or `wirrel_REPO`, default `.`), `--base-url <url>
 - `git.rs` — the only I/O; shells out to `git`, produces `RawCommit` data.
 - `commits.rs` — commit-subject grammar (`create | update | move | meta`).
 - `model.rs` — pure fold of commits into articles; validation; redirect planning.
+- `frontmatter.rs` — the leading `---` metadata block (`title`).
 - `markdown.rs` — pulldown-cmark rendering; hydrates `/id/N/` links to slug URLs.
 - `html.rs` — shared page shell / escaping helpers.
 - `index_page.rs`, `history_page.rs`, `update_page.rs` — generated index,

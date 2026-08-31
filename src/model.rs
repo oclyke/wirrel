@@ -1,6 +1,7 @@
 //! Pure core: fold the commit stream into articles, validate, plan redirects.
 
 use crate::commits::{parse_subject, CommitKind};
+use crate::frontmatter::Frontmatter;
 use crate::git::{FileChange, RawCommit, SigStatus};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -9,14 +10,19 @@ pub type Id = u32;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Article {
+    // Derived from the commit stream by `fold`.
     pub id: Id,
     pub slug: String,
     pub path: String,
-    pub title: Option<String>,
     pub created: String,
     pub updated: String,
     pub history: Vec<String>,
     pub past_slugs: Vec<String>,
+
+    // Derived from the working-tree file; empty until `enrich_from_files` runs.
+    pub frontmatter: Frontmatter,
+    /// The resolved title: the frontmatter `title`, else the first heading.
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -110,7 +116,9 @@ impl Violation {
             Violation::DanglingIdLink { path, id } => {
                 format!("{path}: link references nonexistent id {id}")
             }
-            Violation::MissingTitle { path } => format!("{path}: no level-1 heading for a title"),
+            Violation::MissingTitle { path } => {
+                format!("{path}: no frontmatter `title` and no level-1 heading")
+            }
             Violation::AbsoluteSelfLink { path, url } => {
                 format!("{path}: absolute self-link {url:?}; use the relative /id/N/ form")
             }
@@ -282,11 +290,12 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
                     id: next_id,
                     slug,
                     path: path.clone(),
-                    title: None,
                     created: c.date.clone(),
                     updated: c.date.clone(),
                     history: vec![c.sha.clone()],
                     past_slugs: Vec::new(),
+                    frontmatter: Frontmatter::default(),
+                    title: None,
                 });
                 by_path.insert(path, idx);
                 next_id += 1;

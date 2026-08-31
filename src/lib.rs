@@ -1,4 +1,5 @@
 pub mod commits;
+pub mod frontmatter;
 pub mod git;
 pub mod history_page;
 pub mod html;
