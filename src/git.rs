@@ -110,6 +110,11 @@ pub fn tracked_files(repo: &Path) -> io::Result<Vec<String>> {
     Ok(out.split('\0').filter(|s| !s.is_empty()).map(str::to_string).collect())
 }
 
+/// The unified diff introduced by a commit (patch only, no commit header).
+pub fn commit_diff(repo: &Path, sha: &str) -> io::Result<String> {
+    run(repo, &["diff-tree", "-p", "--no-commit-id", "-r", "--root", sha])
+}
+
 fn ensure_repo(repo: &Path) -> io::Result<()> {
     if !repo.exists() {
         return Err(io::Error::new(

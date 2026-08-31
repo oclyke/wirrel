@@ -78,3 +78,38 @@ fn redirects_command_emits_json_map() {
     assert!(json.contains("\"from\": \"/id/1/\""));
     assert!(json.contains("\"to\": \"/willow/\""));
 }
+
+#[test]
+fn builds_update_page_with_diff() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    git(repo, &["init", "-q"]);
+    git(repo, &["config", "user.email", "t@t.dev"]);
+    git(repo, &["config", "user.name", "t"]);
+    fs::write(repo.join("src/willow.md"), "# willow\nold line\n").unwrap();
+    commit(repo, "create: willow");
+    fs::write(repo.join("src/willow.md"), "# willow\nnew line\n").unwrap();
+    commit(repo, "update: change line");
+
+    let out = repo.join("dist");
+    let ok = Command::new(env!("CARGO_BIN_EXE_wirrel"))
+        .arg("--repo")
+        .arg(repo)
+        .arg("--article-root")
+        .arg("src")
+        .arg("--no-verify-signatures")
+        .arg("build")
+        .arg("--out")
+        .arg(&out)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+
+    let sha_dir = fs::read_dir(out.join("updates")).unwrap().next().unwrap().unwrap().path();
+    let html = fs::read_to_string(sha_dir.join("index.html")).unwrap();
+    assert!(html.contains("update: change line"));
+    assert!(html.contains("class=\"add\">+new line"));
+    assert!(html.contains("class=\"del\">-old line"));
+}

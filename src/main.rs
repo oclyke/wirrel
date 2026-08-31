@@ -1,8 +1,10 @@
 use clap::{Parser, Subcommand};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
+use wirrel::commits::{parse_subject, CommitKind};
 use wirrel::model::{self, Article, Model, Severity};
-use wirrel::{git, history_page, html, index_page, markdown};
+use wirrel::{git, history_page, html, index_page, markdown, update_page};
+use std::collections::HashMap;
 use skim::prelude::{unbounded, Skim, SkimItem, SkimItemReceiver, SkimItemSender, SkimOptionsBuilder};
 use std::borrow::Cow;
 use std::error::Error;
@@ -14,12 +16,13 @@ use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
-#[command(name = "wirrel", about = "tool for compiling the gnostinomicon")]
+#[command(name = "wirrel", about = "wirrel away nuts for the winter")]
 struct Cli {
     #[arg(long, env = "WIRREL_REPO", default_value = ".", global = true)]
     repo: PathBuf,
 
-    #[arg(long, default_value = "https://gnostinomicon.oclyke.dev", global = true)]
+    /// Absolute site origin for canonical tags (e.g. https://example.com).
+    #[arg(long, default_value = "", global = true)]
     base_url: String,
 
     /// Directory holding articles, relative to the repo root.
@@ -279,9 +282,36 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&history_dir)?;
     fs::write(history_dir.join("index.html"), history)?;
 
+    // A dedicated diff page per `update:` commit.
+    let mut by_sha: HashMap<&str, Vec<&Article>> = HashMap::new();
+    for a in &model.articles {
+        for sha in &a.history {
+            by_sha.entry(sha.as_str()).or_default().push(a);
+        }
+    }
+    let mut updates = 0;
+    for c in &commits {
+        let Ok(subject) = parse_subject(&c.subject) else { continue };
+        if !matches!(subject.kind, CommitKind::Update) {
+            continue;
+        }
+        let diff = git::commit_diff(&cli.repo, &c.sha)?;
+        let touched = by_sha.get(c.sha.as_str()).cloned().unwrap_or_default();
+        let page = html::page(
+            &format!("update: {}", subject.description),
+            &format!("{base}/updates/{}/", c.sha),
+            &update_page::body(&subject.description, &c.body, &touched, &diff),
+        );
+        let dir = out.join("updates").join(&c.sha);
+        fs::create_dir_all(&dir)?;
+        fs::write(dir.join("index.html"), page)?;
+        updates += 1;
+    }
+
     println!(
-        "built {} articles + index + history -> {}",
+        "built {} articles + index + history + {} update pages -> {}",
         model.articles.len(),
+        updates,
         out.display()
     );
     Ok(())

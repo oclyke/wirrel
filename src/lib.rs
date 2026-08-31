@@ -5,3 +5,4 @@ pub mod html;
 pub mod index_page;
 pub mod markdown;
 pub mod model;
+pub mod update_page;

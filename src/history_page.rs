@@ -36,7 +36,11 @@ pub fn events(commits: &[RawCommit], model: &Model, limit: usize) -> String {
             }
             None => escape(&subject.description),
         };
-        out.push_str(&format!("<li>{} <b>{}</b> {}</li>\n", date(&c.date), kind, what));
+        let diff = match subject.kind {
+            CommitKind::Update => format!(" <a href=\"/updates/{}/\">diff</a>", c.sha),
+            _ => String::new(),
+        };
+        out.push_str(&format!("<li>{} <b>{}</b> {}{}</li>\n", date(&c.date), kind, what, diff));
         shown += 1;
     }
     out.push_str("</ul>\n");

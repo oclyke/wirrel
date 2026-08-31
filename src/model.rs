@@ -47,6 +47,7 @@ pub enum Violation {
     UpdateBeforeCreate { sha: String, path: String },
     MoveOfUnknown { sha: String, path: String },
     MoveTouchesMultipleArticles { sha: String },
+    MetaTouchesArticle { sha: String, path: String },
     SlugCollision { slug: String, ids: (Id, Id) },
     NonMarkdownInRoot { path: String },
     DanglingIdLink { path: String, id: Id },
@@ -96,6 +97,9 @@ impl Violation {
             }
             Violation::MoveTouchesMultipleArticles { sha } => {
                 format!("{}: `move:` touches more than one article; split it", short(sha))
+            }
+            Violation::MetaTouchesArticle { sha, path } => {
+                format!("{}: `meta:` must not change article {path}", short(sha))
             }
             Violation::SlugCollision { slug, ids } => {
                 format!("slug {slug:?} claimed by both id {} and id {}", ids.0, ids.1)
@@ -245,7 +249,16 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
         };
 
         match subject.kind {
-            CommitKind::Meta => {}
+            CommitKind::Meta => {
+                for path in c.changed.iter().flat_map(changed_paths) {
+                    if by_path.contains_key(path) {
+                        violations.push(Violation::MetaTouchesArticle {
+                            sha: c.sha.clone(),
+                            path: path.clone(),
+                        });
+                    }
+                }
+            }
 
             CommitKind::Create => {
                 let path = match c.changed.iter().find_map(added_md) {
@@ -404,6 +417,14 @@ fn touched_md(f: &FileChange) -> Option<String> {
     }
 }
 
+/// Every repo path a change references (both sides of a rename).
+fn changed_paths(f: &FileChange) -> Vec<&String> {
+    match f {
+        FileChange::Added(p) | FileChange::Modified(p) => vec![p],
+        FileChange::Renamed { from, to } => vec![from, to],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,6 +477,26 @@ mod tests {
         unsigned.sig = SigStatus::None;
         let opts = CheckOptions { verify_signatures: false };
         assert!(check(&[unsigned], "src", &opts).is_empty());
+    }
+
+    #[test]
+    fn meta_touching_an_article_flagged() {
+        let h = [
+            c("create: willow", vec![added("src/willow.md")]),
+            c("meta: tweak", vec![modified("src/willow.md")]),
+        ];
+        let v = check(&h, "src", &CheckOptions::default());
+        assert!(v.iter().any(|x| matches!(x, Violation::MetaTouchesArticle { .. })));
+    }
+
+    #[test]
+    fn meta_touching_non_article_ok() {
+        let h = [
+            c("create: willow", vec![added("src/willow.md")]),
+            c("meta: docs", vec![modified("README.md")]),
+        ];
+        let v = check(&h, "src", &CheckOptions::default());
+        assert!(!v.iter().any(|x| matches!(x, Violation::MetaTouchesArticle { .. })));
     }
 
     #[test]
