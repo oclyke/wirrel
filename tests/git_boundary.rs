@@ -29,18 +29,18 @@ fn loads_and_parses_history() {
     git(repo, &["add", "-A"]);
     git(repo, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "create: the willow"]);
 
-    let commits = quill::git::load(repo).unwrap();
+    let commits = wirrel::git::load(repo).unwrap();
     assert_eq!(commits.len(), 1);
     assert_eq!(commits[0].subject, "create: the willow");
     assert!(matches!(
         commits[0].changed.as_slice(),
-        [quill::git::FileChange::Added(p)] if p == "src/willow.md"
+        [wirrel::git::FileChange::Added(p)] if p == "src/willow.md"
     ));
 }
 
 #[test]
 fn errors_on_non_repo() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(quill::git::load(dir.path()).is_err()); // exists but not a git repo
-    assert!(quill::git::load(Path::new("/no/such/path")).is_err());
+    assert!(wirrel::git::load(dir.path()).is_err()); // exists but not a git repo
+    assert!(wirrel::git::load(Path::new("/no/such/path")).is_err());
 }

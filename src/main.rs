@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
-use quill::model::{self, Article, Model, Severity};
-use quill::{git, history_page, html, index_page, markdown};
+use wirrel::model::{self, Article, Model, Severity};
+use wirrel::{git, history_page, html, index_page, markdown};
 use skim::prelude::{unbounded, Skim, SkimItem, SkimItemReceiver, SkimItemSender, SkimOptionsBuilder};
 use std::borrow::Cow;
 use std::error::Error;
@@ -14,9 +14,9 @@ use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
-#[command(name = "quill", about = "tool for compiling the gnostinomicon")]
+#[command(name = "wirrel", about = "tool for compiling the gnostinomicon")]
 struct Cli {
-    #[arg(long, env = "QUILL_REPO", default_value = ".", global = true)]
+    #[arg(long, env = "WIRREL_REPO", default_value = ".", global = true)]
     repo: PathBuf,
 
     #[arg(long, default_value = "https://gnostinomicon.oclyke.dev", global = true)]
@@ -97,7 +97,7 @@ fn load_valid_model(cli: &Cli) -> Result<(Vec<git::RawCommit>, Model), Box<dyn E
         }
     }
     if errors > 0 {
-        return Err(format!("{errors} validation error(s); run `quill check`").into());
+        return Err(format!("{errors} validation error(s); run `wirrel check`").into());
     }
     Ok((commits, model))
 }

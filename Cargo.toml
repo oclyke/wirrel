@@ -1,8 +1,8 @@
 [package]
-name = "quill"
+name = "wirrel"
 version = "0.1.0"
 edition = "2021"
-description = "tool for compiling the gnostinomicon"
+description = "wirrel away nuts for the winter"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }

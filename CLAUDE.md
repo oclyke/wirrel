@@ -1,4 +1,4 @@
-# Working in quill
+# Working in wirrel
 
 ## Code style
 - Keep comments minimal. Prefer clear names over prose; comment only the

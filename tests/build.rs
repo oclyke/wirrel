@@ -30,7 +30,7 @@ fn builds_nested_articles() {
     commit(repo, "create: nested article");
 
     let out = repo.join("dist");
-    let ok = Command::new(env!("CARGO_BIN_EXE_quill"))
+    let ok = Command::new(env!("CARGO_BIN_EXE_wirrel"))
         .arg("--repo")
         .arg(repo)
         .arg("--article-root")
@@ -63,7 +63,7 @@ fn redirects_command_emits_json_map() {
     fs::write(repo.join("src/willow.md"), "# willow\n").unwrap();
     commit(repo, "create: willow");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_quill"))
+    let output = Command::new(env!("CARGO_BIN_EXE_wirrel"))
         .arg("--repo")
         .arg(repo)
         .arg("--article-root")

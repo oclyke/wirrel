@@ -901,24 +901,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "007d8adb5ddab6f8e3f491ac63566a7d5002cc7ed73901f72057943fa71ae1ae"
 
 [[package]]
-name = "quill"
-version = "0.1.0"
-dependencies = [
- "clap 4.6.6",
- "insta",
- "nucleo-matcher",
- "pulldown-cmark",
- "regex",
- "rstest",
- "serde",
- "serde_json",
- "skim",
- "tempfile",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1640,6 +1622,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "wirrel"
+version = "0.1.0"
+dependencies = [
+ "clap 4.6.6",
+ "insta",
+ "nucleo-matcher",
+ "pulldown-cmark",
+ "regex",
+ "rstest",
+ "serde",
+ "serde_json",
+ "skim",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-# quill
+# wirrel
 
 Tool for compiling the [gnostinomicon](https://gnostinomicon.oclyke.dev) — a
 body of notes managed as a git history of conventional commits.
@@ -12,18 +12,18 @@ and slug to its current URL. Articles nest — `parent/index.md` is `/parent/`,
 
 ## Commands
 
-- `quill index` — list articles (id, slug, title).
-- `quill check` — validate history: subject grammar, signatures, lineage, slug
+- `wirrel index` — list articles (id, slug, title).
+- `wirrel check` — validate history: subject grammar, signatures, lineage, slug
   collisions, single-article moves, dangling `/id/N/` links, missing titles,
   absolute self-links, and non-markdown files under the article root.
-- `quill link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
-- `quill build --out dist` — render the site content: article pages (each with a
+- `wirrel link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
+- `wirrel build --out dist` — render the site content: article pages (each with a
   created/updated header), a generated index (with recent changes), and a full
   update-history page.
-- `quill redirects` — print the redirect map (id permalinks + historical slugs)
+- `wirrel redirects` — print the redirect map (id permalinks + historical slugs)
   as JSON on stdout, for a separate deploy tool to consume.
 
-Global flags: `--repo <path>` (or `QUILL_REPO`, default `.`), `--base-url <url>`,
+Global flags: `--repo <path>` (or `wirrel_REPO`, default `.`), `--base-url <url>`,
 `--article-root <dir>` (default `.`), and `--no-verify-signatures`.
 
 ## Layout
