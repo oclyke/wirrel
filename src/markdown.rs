@@ -72,10 +72,22 @@ pub fn id_refs(md: &str) -> Vec<Id> {
     ids
 }
 
-/// Extract an article id from `id:2`, `/id/2`, or `https://host/id/2`.
+/// Every link/image destination in the document.
+pub fn link_dests(md: &str) -> Vec<String> {
+    let mut dests = Vec::new();
+    for ev in Parser::new_ext(md, options()) {
+        if let Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) = ev {
+            dests.push(dest_url.to_string());
+        }
+    }
+    dests
+}
+
+/// Extract an article id from an internal ref: `id:2`, `/id/2`, or `/id/2/`.
+/// Absolute/foreign URLs (e.g. `https://other.site/id/2`) are left untouched.
 pub fn parse_id_ref(dest: &str) -> Option<Id> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(r"(?:\A|[^0-9A-Za-z])id[:/](\d+)").unwrap());
+    let re = RE.get_or_init(|| Regex::new(r"^(?:id:|/id/)(\d+)/?$").unwrap());
     re.captures(dest)?.get(1)?.as_str().parse().ok()
 }
 
@@ -84,10 +96,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_id_refs() {
+    fn parses_internal_id_refs_only() {
         assert_eq!(parse_id_ref("id:2"), Some(2));
         assert_eq!(parse_id_ref("/id/2"), Some(2));
-        assert_eq!(parse_id_ref("https://host/id/2"), Some(2));
+        assert_eq!(parse_id_ref("/id/2/"), Some(2));
+        assert_eq!(parse_id_ref("https://other.site/id/2"), None);
         assert_eq!(parse_id_ref("/other/"), None);
     }
 

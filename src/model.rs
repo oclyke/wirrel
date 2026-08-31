@@ -4,7 +4,6 @@ use crate::commits::{parse_subject, CommitKind};
 use crate::git::{FileChange, RawCommit, SigStatus};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::Path;
 
 pub type Id = u32;
 
@@ -47,9 +46,12 @@ pub enum Violation {
     CreateWithoutFile { sha: String },
     UpdateBeforeCreate { sha: String, path: String },
     MoveOfUnknown { sha: String, path: String },
+    MoveTouchesMultipleArticles { sha: String },
     SlugCollision { slug: String, ids: (Id, Id) },
+    NonMarkdownInRoot { path: String },
     DanglingIdLink { path: String, id: Id },
     MissingTitle { path: String },
+    AbsoluteSelfLink { path: String, url: String },
     RedirectCollision { slug: String, historical: Id, live: Id },
 }
 
@@ -67,7 +69,9 @@ impl Violation {
             // These don't corrupt the output; titles fall back to the slug.
             Violation::UnsignedCommit { .. }
             | Violation::RedirectCollision { .. }
-            | Violation::MissingTitle { .. } => Severity::Warning,
+            | Violation::MissingTitle { .. }
+            | Violation::AbsoluteSelfLink { .. }
+            | Violation::NonMarkdownInRoot { .. } => Severity::Warning,
             _ => Severity::Error,
         }
     }
@@ -90,13 +94,22 @@ impl Violation {
             Violation::MoveOfUnknown { sha, path } => {
                 format!("{}: `move:` renamed unknown file {path}", short(sha))
             }
+            Violation::MoveTouchesMultipleArticles { sha } => {
+                format!("{}: `move:` touches more than one article; split it", short(sha))
+            }
             Violation::SlugCollision { slug, ids } => {
                 format!("slug {slug:?} claimed by both id {} and id {}", ids.0, ids.1)
+            }
+            Violation::NonMarkdownInRoot { path } => {
+                format!("{path}: non-markdown file under the article root")
             }
             Violation::DanglingIdLink { path, id } => {
                 format!("{path}: link references nonexistent id {id}")
             }
             Violation::MissingTitle { path } => format!("{path}: no level-1 heading for a title"),
+            Violation::AbsoluteSelfLink { path, url } => {
+                format!("{path}: absolute self-link {url:?}; use the relative /id/N/ form")
+            }
             Violation::RedirectCollision { slug, historical, live } => format!(
                 "redirect for old slug {slug:?} (id {historical}) dropped; now owned by id {live}"
             ),
@@ -121,13 +134,13 @@ impl Default for CheckOptions {
     }
 }
 
-pub fn build_model(commits: &[RawCommit]) -> Model {
-    fold(commits).0
+pub fn build_model(commits: &[RawCommit], root: &str) -> Model {
+    fold(commits, root).0
 }
 
 /// Structural checks (grammar, signatures, lineage, slug collisions).
-pub fn check(commits: &[RawCommit], opts: &CheckOptions) -> Vec<Violation> {
-    let mut violations = fold(commits).1;
+pub fn check(commits: &[RawCommit], root: &str, opts: &CheckOptions) -> Vec<Violation> {
+    let mut violations = fold(commits, root).1;
     if !opts.verify_signatures {
         violations.retain(|v| {
             !matches!(v, Violation::BadSignature { .. } | Violation::UnsignedCommit { .. })
@@ -136,8 +149,20 @@ pub fn check(commits: &[RawCommit], opts: &CheckOptions) -> Vec<Violation> {
     violations
 }
 
-/// Content checks for one article file: missing title and dangling id links.
-pub fn check_content(model: &Model, path: &str, content: &str) -> Vec<Violation> {
+/// Lint tracked files under the article root: everything there should be
+/// markdown.
+pub fn check_tracked_files(root: &str, files: &[String]) -> Vec<Violation> {
+    let prefix = root_prefix(root);
+    files
+        .iter()
+        .filter(|f| f.starts_with(&prefix) && !f.ends_with(".md"))
+        .map(|f| Violation::NonMarkdownInRoot { path: f.clone() })
+        .collect()
+}
+
+/// Content checks for one article file: missing title, dangling id links, and
+/// absolute self-links that should use the relative `/id/N/` form.
+pub fn check_content(model: &Model, base_url: &str, path: &str, content: &str) -> Vec<Violation> {
     let mut violations = Vec::new();
 
     if crate::markdown::extract_title(content).is_none() {
@@ -151,6 +176,15 @@ pub fn check_content(model: &Model, path: &str, content: &str) -> Vec<Violation>
             .filter(|&id| id == 0 || id > max || model.by_id(id).is_none())
             .map(|id| Violation::DanglingIdLink { path: path.to_string(), id }),
     );
+
+    let origin = base_url.trim_end_matches('/');
+    if !origin.is_empty() {
+        for dest in crate::markdown::link_dests(content) {
+            if dest.starts_with(origin) {
+                violations.push(Violation::AbsoluteSelfLink { path: path.to_string(), url: dest });
+            }
+        }
+    }
 
     violations
 }
@@ -186,7 +220,7 @@ pub fn plan_redirects(model: &Model) -> (Vec<Redirect>, Vec<Violation>) {
     (redirects, violations)
 }
 
-fn fold(commits: &[RawCommit]) -> (Model, Vec<Violation>) {
+fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
     let mut model = Model::default();
     let mut violations = Vec::new();
     let mut by_path: HashMap<String, usize> = HashMap::new();
@@ -221,7 +255,7 @@ fn fold(commits: &[RawCommit]) -> (Model, Vec<Violation>) {
                         continue;
                     }
                 };
-                let slug = slug_of(&path);
+                let slug = slug_of(root, &path);
 
                 if let Some(other) = slug_owner(&model, &by_path, &slug, None) {
                     violations.push(Violation::SlugCollision {
@@ -262,6 +296,7 @@ fn fold(commits: &[RawCommit]) -> (Model, Vec<Violation>) {
             }
 
             CommitKind::Move => {
+                let mut touched: Vec<usize> = Vec::new();
                 for f in &c.changed {
                     let FileChange::Renamed { from, to } = f else { continue };
                     if !is_md(from) && !is_md(to) {
@@ -275,7 +310,7 @@ fn fold(commits: &[RawCommit]) -> (Model, Vec<Violation>) {
                         continue;
                     };
 
-                    let new_slug = slug_of(to);
+                    let new_slug = slug_of(root, to);
                     {
                         let art = &mut model.articles[idx];
                         if art.slug != new_slug {
@@ -287,6 +322,9 @@ fn fold(commits: &[RawCommit]) -> (Model, Vec<Violation>) {
                         art.updated = c.date.clone();
                     }
                     by_path.insert(to.clone(), idx);
+                    if !touched.contains(&idx) {
+                        touched.push(idx);
+                    }
 
                     let id = model.articles[idx].id;
                     if let Some(other) = slug_owner(&model, &by_path, &new_slug, Some(id)) {
@@ -295,6 +333,9 @@ fn fold(commits: &[RawCommit]) -> (Model, Vec<Violation>) {
                             ids: (other, id),
                         });
                     }
+                }
+                if touched.len() > 1 {
+                    violations.push(Violation::MoveTouchesMultipleArticles { sha: c.sha.clone() });
                 }
             }
         }
@@ -324,12 +365,28 @@ fn is_md(path: &str) -> bool {
     path.ends_with(".md")
 }
 
-fn slug_of(path: &str) -> String {
-    Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| path.to_string())
+/// `foo/` for a root of `foo`; empty for `.` (repo root).
+fn root_prefix(root: &str) -> String {
+    let root = root.trim_end_matches('/');
+    if root.is_empty() || root == "." {
+        String::new()
+    } else {
+        format!("{root}/")
+    }
+}
+
+/// Output route for a source path: strip the article root and `.md`, and collapse
+/// `index` so `a/index.md` -> `a` while `a/b.md` -> `a/b`.
+fn slug_of(root: &str, path: &str) -> String {
+    let p = path.strip_prefix(&root_prefix(root)).unwrap_or(path);
+    let p = p.strip_suffix(".md").unwrap_or(p);
+    if p == "index" {
+        String::new()
+    } else if let Some(dir) = p.strip_suffix("/index") {
+        dir.to_string()
+    } else {
+        p.to_string()
+    }
 }
 
 fn added_md(f: &FileChange) -> Option<String> {
@@ -381,7 +438,7 @@ mod tests {
             c("create: willow", vec![added("src/willow.md")]),
             c("create: direction", vec![added("src/choosing-direction.md")]),
         ];
-        let m = build_model(&h);
+        let m = build_model(&h, "src");
         assert_eq!(m.by_slug("willow").unwrap().id, 1);
         assert_eq!(m.by_id(2).unwrap().slug, "choosing-direction");
     }
@@ -389,7 +446,7 @@ mod tests {
     #[test]
     fn update_before_create_flagged() {
         let h = [c("update: edits", vec![modified("src/foo.md")])];
-        let v = check(&h, &CheckOptions::default());
+        let v = check(&h, "src", &CheckOptions::default());
         assert!(matches!(v.as_slice(), [Violation::UpdateBeforeCreate { .. }]));
     }
 
@@ -398,7 +455,7 @@ mod tests {
         let mut unsigned = c("create: x", vec![added("src/x.md")]);
         unsigned.sig = SigStatus::None;
         let opts = CheckOptions { verify_signatures: false };
-        assert!(check(&[unsigned], &opts).is_empty());
+        assert!(check(&[unsigned], "src", &opts).is_empty());
     }
 
     #[test]
@@ -407,21 +464,35 @@ mod tests {
             c("create: direction", vec![added("src/direction.md")]),
             c("move: rename", vec![renamed("src/direction.md", "src/choosing-direction.md")]),
         ];
-        let m = build_model(&h);
+        let m = build_model(&h, "src");
         let a = m.by_slug("choosing-direction").unwrap();
         assert_eq!(a.id, 1);
         assert_eq!(a.past_slugs, ["direction"]);
-        assert!(check(&h, &CheckOptions::default()).is_empty());
+        assert!(check(&h, "src", &CheckOptions::default()).is_empty());
     }
 
     #[test]
     fn live_slug_collision_flagged() {
+        // `src/dup.md` and `src/dup/index.md` both route to `dup`.
         let h = [
             c("create: a", vec![added("src/dup.md")]),
-            c("create: b", vec![added("other/dup.md")]),
+            c("create: b", vec![added("src/dup/index.md")]),
         ];
-        let v = check(&h, &CheckOptions::default());
+        let v = check(&h, "src", &CheckOptions::default());
         assert!(v.iter().any(|x| matches!(x, Violation::SlugCollision { .. })));
+    }
+
+    #[test]
+    fn nested_and_index_routing() {
+        let h = [
+            c("create: idx", vec![added("src/parent/index.md")]),
+            c("create: art", vec![added("src/parent/article.md")]),
+            c("create: flat", vec![added("src/willow.md")]),
+        ];
+        let m = build_model(&h, "src");
+        assert_eq!(m.by_id(1).unwrap().slug, "parent");
+        assert_eq!(m.by_id(2).unwrap().slug, "parent/article");
+        assert_eq!(m.by_id(3).unwrap().slug, "willow");
     }
 
     #[test]
@@ -431,7 +502,7 @@ mod tests {
             c("move: rename", vec![renamed("src/direction.md", "src/choosing-direction.md")]),
             c("create: new", vec![added("src/direction.md")]),
         ];
-        let m = build_model(&h);
+        let m = build_model(&h, "src");
         let (reds, viol) = plan_redirects(&m);
         assert!(viol.iter().any(|v| matches!(v, Violation::RedirectCollision { .. })));
         assert!(reds.iter().any(|r| r.from == "/id/1/"));
@@ -440,16 +511,68 @@ mod tests {
 
     #[test]
     fn content_check_finds_missing_title_and_dangling_link() {
-        let m = build_model(&[c("create: willow", vec![added("src/willow.md")])]);
-        let v = check_content(&m, "src/willow.md", "no heading [x](id:99)");
+        let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
+        let v = check_content(&m, "https://x.dev", "src/willow.md", "no heading [x](id:99)");
         assert!(v.iter().any(|x| matches!(x, Violation::MissingTitle { .. })));
         assert!(v.iter().any(|x| matches!(x, Violation::DanglingIdLink { id: 99, .. })));
     }
 
     #[test]
+    fn absolute_self_link_flagged_but_not_foreign() {
+        let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
+        let content = "# t\n[self](https://site.dev/id/1) [ext](https://other.site/id/1)";
+        let v = check_content(&m, "https://site.dev", "src/willow.md", content);
+        let flagged: Vec<_> =
+            v.iter().filter(|x| matches!(x, Violation::AbsoluteSelfLink { .. })).collect();
+        assert_eq!(flagged.len(), 1);
+    }
+
+    #[test]
     fn render_hydrates_id_link() {
-        let m = build_model(&[c("create: willow", vec![added("src/willow.md")])]);
+        let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
         let html = crate::markdown::render("[w](id:1)", &m);
         assert!(html.contains("href=\"/willow/\""));
+    }
+
+    #[test]
+    fn move_touching_multiple_articles_flagged() {
+        // `dir/index.md` (article `dir`) and `dir/child.md` (article `dir/child`)
+        // are two independent nested articles; a directory rename touches both.
+        let h = [
+            c("create: idx", vec![added("src/dir/index.md")]),
+            c("create: child", vec![added("src/dir/child.md")]),
+            c(
+                "move: reorg",
+                vec![
+                    renamed("src/dir/index.md", "src/moved/index.md"),
+                    renamed("src/dir/child.md", "src/moved/child.md"),
+                ],
+            ),
+        ];
+        let v = check(&h, "src", &CheckOptions::default());
+        assert!(v.iter().any(|x| matches!(x, Violation::MoveTouchesMultipleArticles { .. })));
+    }
+
+    #[test]
+    fn move_of_single_nested_article_ok() {
+        let h = [
+            c("create: idx", vec![added("src/dir/index.md")]),
+            c("create: child", vec![added("src/dir/child.md")]),
+            c("move: rename one", vec![renamed("src/dir/child.md", "src/dir/renamed.md")]),
+        ];
+        let v = check(&h, "src", &CheckOptions::default());
+        assert!(!v.iter().any(|x| matches!(x, Violation::MoveTouchesMultipleArticles { .. })));
+    }
+
+    #[test]
+    fn non_markdown_under_root_flagged() {
+        let files = vec![
+            "src/willow.md".to_string(),
+            "src/notes.txt".to_string(),
+            "README.md".to_string(),      // outside root
+            "assets/logo.png".to_string(), // outside root
+        ];
+        let v = check_tracked_files("src", &files);
+        assert!(matches!(v.as_slice(), [Violation::NonMarkdownInRoot { path }] if path == "src/notes.txt"));
     }
 }

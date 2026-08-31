@@ -104,6 +104,12 @@ fn load_changes(repo: &Path, sha: &str) -> io::Result<Vec<FileChange>> {
     Ok(changes)
 }
 
+/// Paths tracked by git, repo-relative.
+pub fn tracked_files(repo: &Path) -> io::Result<Vec<String>> {
+    let out = run(repo, &["ls-files", "-z"])?;
+    Ok(out.split('\0').filter(|s| !s.is_empty()).map(str::to_string).collect())
+}
+
 fn ensure_repo(repo: &Path) -> io::Result<()> {
     if !repo.exists() {
         return Err(io::Error::new(

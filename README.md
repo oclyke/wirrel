@@ -5,25 +5,32 @@ body of notes managed as a git history of conventional commits.
 
 Each `create:` commit assigns an article a stable numeric id (its create-order);
 `update:` and `move:` commits evolve it. Because the id is a permanent handle,
-links survive renames: source files reference articles by id (`id:2`, `/id/2`),
-and quill renders pretty slug URLs while emitting redirects from every
-historical id and slug.
+links survive renames: source files reference articles by `/id/N/`, and quill
+renders pretty slug URLs while emitting redirects from every historical id and
+slug. Articles nest — `parent/index.md` is `/parent/`, `parent/other.md` is
+`/parent/other/`.
 
 ## Commands
 
 - `quill index` — list articles (id, slug, title).
 - `quill check` — validate history: subject grammar, signatures, lineage, slug
-  collisions, dangling `id:` links, and missing titles.
-- `quill link <query>` — fuzzy-find an article and print its markdown link.
-- `quill build --out dist` — render HTML pages plus a `_redirects` manifest.
+  collisions, single-article moves, dangling `/id/N/` links, missing titles,
+  absolute self-links, and non-markdown files under the article root.
+- `quill link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
+- `quill build --out dist` — render article pages (each with a created/updated
+  header) plus a generated index (with recent changes), a full update-history
+  page, and a `_redirects` manifest.
 
-Global flags: `--repo <path>` (default `.`) and `--base-url <url>`.
+Global flags: `--repo <path>` (or `QUILL_REPO`, default `.`), `--base-url <url>`,
+`--article-root <dir>` (default `.`), and `--no-verify-signatures`.
 
 ## Layout
 
 - `git.rs` — the only I/O; shells out to `git`, produces `RawCommit` data.
 - `commits.rs` — commit-subject grammar (`create | update | move | meta`).
 - `model.rs` — pure fold of commits into articles; validation; redirect planning.
-- `markdown.rs` — pulldown-cmark rendering; hydrates `id:` links to slug URLs.
+- `markdown.rs` — pulldown-cmark rendering; hydrates `/id/N/` links to slug URLs.
+- `html.rs` — shared page shell / escaping helpers.
+- `index_page.rs`, `history_page.rs` — generated index and update-history pages.
 
 Commit convention: `<type>: <description>`, type one of create, update, move, meta.

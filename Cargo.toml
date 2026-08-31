@@ -9,6 +9,7 @@ clap = { version = "4", features = ["derive", "env"] }
 nucleo-matcher = "0.3"
 pulldown-cmark = "0.12"
 regex = "1"
+skim = "0.10"
 serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
