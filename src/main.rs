@@ -42,11 +42,13 @@ enum Commands {
     Check,
     /// Fuzzy-find an article and print its markdown link.
     Link { query: Option<String> },
-    /// Render the static site (HTML pages + redirect manifest).
+    /// Render the static site content (HTML pages) into a directory.
     Build {
         #[arg(long, default_value = "dist")]
         out: PathBuf,
     },
+    /// Emit the redirect map (id permalinks + historical slugs) as JSON.
+    Redirects,
 }
 
 fn main() {
@@ -62,6 +64,7 @@ fn main() {
         Commands::Check => cmd_check(&cli),
         Commands::Link { query } => cmd_link(&cli, query.as_deref()),
         Commands::Build { out } => cmd_build(&cli, out),
+        Commands::Redirects => cmd_redirects(&cli),
     };
     if let Err(e) = result {
         tracing::error!("{e}");
@@ -239,6 +242,13 @@ fn link_filtered(model: &Model, query: &str) {
 const HISTORY_LIMIT: usize = 25;
 const INDEX_RECENT: usize = 5;
 
+fn cmd_redirects(cli: &Cli) -> Result<(), Box<dyn Error>> {
+    let (_, model) = load_valid_model(cli)?;
+    let (redirects, _) = model::plan_redirects(&model);
+    println!("{}", serde_json::to_string_pretty(&redirects)?);
+    Ok(())
+}
+
 fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     let (commits, model) = load_valid_model(cli)?;
     let base = cli.base_url.trim_end_matches('/');
@@ -269,17 +279,9 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&history_dir)?;
     fs::write(history_dir.join("index.html"), history)?;
 
-    let (redirects, _) = model::plan_redirects(&model);
-    let manifest: String = redirects
-        .iter()
-        .map(|r| format!("{}  {}  301\n", r.from, r.to))
-        .collect();
-    fs::write(out.join("_redirects"), manifest)?;
-
     println!(
-        "built {} articles + index + history, {} redirects -> {}",
+        "built {} articles + index + history -> {}",
         model.articles.len(),
-        redirects.len(),
         out.display()
     );
     Ok(())

@@ -5,10 +5,10 @@ body of notes managed as a git history of conventional commits.
 
 Each `create:` commit assigns an article a stable numeric id (its create-order);
 `update:` and `move:` commits evolve it. Because the id is a permanent handle,
-links survive renames: source files reference articles by `/id/N/`, and quill
-renders pretty slug URLs while emitting redirects from every historical id and
-slug. Articles nest — `parent/index.md` is `/parent/`, `parent/other.md` is
-`/parent/other/`.
+links survive renames: source files reference articles by `/id/N/`, `build`
+renders pretty slug URLs, and `redirects` emits a map from every historical id
+and slug to its current URL. Articles nest — `parent/index.md` is `/parent/`,
+`parent/other.md` is `/parent/other/`.
 
 ## Commands
 
@@ -17,9 +17,11 @@ slug. Articles nest — `parent/index.md` is `/parent/`, `parent/other.md` is
   collisions, single-article moves, dangling `/id/N/` links, missing titles,
   absolute self-links, and non-markdown files under the article root.
 - `quill link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
-- `quill build --out dist` — render article pages (each with a created/updated
-  header) plus a generated index (with recent changes), a full update-history
-  page, and a `_redirects` manifest.
+- `quill build --out dist` — render the site content: article pages (each with a
+  created/updated header), a generated index (with recent changes), and a full
+  update-history page.
+- `quill redirects` — print the redirect map (id permalinks + historical slugs)
+  as JSON on stdout, for a separate deploy tool to consume.
 
 Global flags: `--repo <path>` (or `QUILL_REPO`, default `.`), `--base-url <url>`,
 `--article-root <dir>` (default `.`), and `--no-verify-signatures`.

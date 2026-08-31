@@ -51,3 +51,30 @@ fn builds_nested_articles() {
     let article = fs::read_to_string(out.join("parent/article/index.html")).unwrap();
     assert!(article.contains("href=\"/parent/\""));
 }
+
+#[test]
+fn redirects_command_emits_json_map() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    git(repo, &["init", "-q"]);
+    git(repo, &["config", "user.email", "t@t.dev"]);
+    git(repo, &["config", "user.name", "t"]);
+    fs::write(repo.join("src/willow.md"), "# willow\n").unwrap();
+    commit(repo, "create: willow");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_quill"))
+        .arg("--repo")
+        .arg(repo)
+        .arg("--article-root")
+        .arg("src")
+        .arg("--no-verify-signatures")
+        .arg("redirects")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let json = String::from_utf8(output.stdout).unwrap();
+    assert!(json.contains("\"from\": \"/id/1/\""));
+    assert!(json.contains("\"to\": \"/willow/\""));
+}
