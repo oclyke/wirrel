@@ -1,8 +1,13 @@
 [package]
 name = "wirrel"
+description = "wirrel away nuts for the winter"
+repository = "https://github.com/oclyke/wirrel"
+readme = "README.md"
+keywords = ["static", "site", "generator"]
+categories = ["web-programming"]
 version = "0.1.0"
 edition = "2021"
-description = "wirrel away nuts for the winter"
+license = "MIT"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
