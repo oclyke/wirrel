@@ -1,0 +1,19 @@
+[package]
+name = "quill"
+version = "0.1.0"
+edition = "2021"
+description = "tool for compiling the gnostinomicon"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+nucleo-matcher = "0.3"
+pulldown-cmark = "0.12"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }
+rstest = "0.23"
+tempfile = "3"
