@@ -1,5 +1,6 @@
 pub mod commits;
 pub mod frontmatter;
+pub mod gone_page;
 pub mod git;
 pub mod history_page;
 pub mod html;

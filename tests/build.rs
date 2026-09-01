@@ -80,6 +80,46 @@ fn redirects_command_emits_json_map() {
 }
 
 #[test]
+fn moved_article_leaves_a_tombstone() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    git(repo, &["init", "-q"]);
+    git(repo, &["config", "user.email", "t@t.dev"]);
+    git(repo, &["config", "user.name", "t"]);
+    fs::write(repo.join("src/direction.md"), "# direction\n").unwrap();
+    commit(repo, "create: direction");
+    fs::rename(repo.join("src/direction.md"), repo.join("src/choosing-direction.md")).unwrap();
+    commit(repo, "move: rename");
+
+    let out = repo.join("dist");
+    let ok = Command::new(env!("CARGO_BIN_EXE_wirrel"))
+        .arg("--repo")
+        .arg(repo)
+        .arg("--article-root")
+        .arg("src")
+        .arg("--no-verify-signatures")
+        .arg("build")
+        .arg("--out")
+        .arg(&out)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+
+    assert!(out.join("choosing-direction/index.html").is_file());
+
+    // The old address stays honest: it says the article moved, not where to.
+    let tombstone = fs::read_to_string(out.join("direction/index.html")).unwrap();
+    assert!(tombstone.contains("this article has moved"));
+    assert!(!tombstone.contains("choosing-direction"));
+    assert!(tombstone.contains("noindex"));
+
+    let missing = fs::read_to_string(out.join("404.html")).unwrap();
+    assert!(missing.contains("no such article"));
+}
+
+#[test]
 fn builds_update_page_with_diff() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path();

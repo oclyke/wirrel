@@ -44,6 +44,24 @@ pub fn page(title: &str, canonical: &str, body: &str) -> String {
     )
 }
 
+/// Shell for a page that shouldn't be indexed and has no canonical address of
+/// its own: the dead ends.
+pub fn dead_end_page(title: &str, body: &str) -> String {
+    let title = escape(title);
+    format!(
+        "<!doctype html>\n\
+         <html lang=\"en\">\n\
+         <head>\n\
+         <meta charset=\"utf-8\">\n\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+         <meta name=\"robots\" content=\"noindex\">\n\
+         <title>{title}</title>\n\
+         </head>\n\
+         <body>\n{body}</body>\n\
+         </html>\n"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

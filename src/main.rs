@@ -3,7 +3,7 @@ use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 use wirrel::commits::{parse_subject, CommitKind};
 use wirrel::model::{self, Article, Model, Severity};
-use wirrel::{frontmatter, git, history_page, html, index_page, markdown, update_page};
+use wirrel::{frontmatter, git, gone_page, history_page, html, index_page, markdown, update_page};
 use std::collections::HashMap;
 use skim::prelude::{unbounded, Skim, SkimItem, SkimItemReceiver, SkimItemSender, SkimOptionsBuilder};
 use std::borrow::Cow;
@@ -50,7 +50,7 @@ enum Commands {
         #[arg(long, default_value = "dist")]
         out: PathBuf,
     },
-    /// Emit the redirect map (id permalinks + historical slugs) as JSON.
+    /// Emit the redirect map (id permalinks) as JSON.
     Redirects,
 }
 
@@ -116,7 +116,6 @@ fn collect_violations(cli: &Cli, commits: &[git::RawCommit], model: &Model) -> V
     if let Ok(files) = git::tracked_files(&cli.repo) {
         violations.extend(model::check_tracked_files(&cli.article_root, &files));
     }
-    violations.extend(model::plan_redirects(model).1);
     violations
 }
 
@@ -250,7 +249,7 @@ const INDEX_RECENT: usize = 5;
 
 fn cmd_redirects(cli: &Cli) -> Result<(), Box<dyn Error>> {
     let (_, model) = load_valid_model(cli)?;
-    let (redirects, _) = model::plan_redirects(&model);
+    let redirects = model::plan_redirects(&model);
     println!("{}", serde_json::to_string_pretty(&redirects)?);
     Ok(())
 }
@@ -295,6 +294,22 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&history_dir)?;
     fs::write(history_dir.join("index.html"), history)?;
 
+    // Dead ends. A slug an article moved away from keeps a tombstone so the
+    // address stays honest without forwarding; `404.html` covers the rest.
+    let retired = model::retired_slugs(&model);
+    for slug in &retired {
+        let dir = out.join(slug);
+        fs::create_dir_all(&dir)?;
+        fs::write(
+            dir.join("index.html"),
+            html::dead_end_page("this article has moved", &gone_page::moved_body()),
+        )?;
+    }
+    fs::write(
+        out.join("404.html"),
+        html::dead_end_page("no such article", &gone_page::missing_body()),
+    )?;
+
     // A dedicated diff page per `update:` commit.
     let mut by_sha: HashMap<&str, Vec<&Article>> = HashMap::new();
     for a in &model.articles {
@@ -322,9 +337,10 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     }
 
     println!(
-        "built {} articles + index + history + {} update pages -> {}",
+        "built {} articles + index + history + {} update pages + {} tombstones -> {}",
         model.articles.len(),
         updates,
+        retired.len(),
         out.display()
     );
     Ok(())

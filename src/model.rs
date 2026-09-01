@@ -4,7 +4,7 @@ use crate::commits::{parse_subject, CommitKind};
 use crate::frontmatter::Frontmatter;
 use crate::git::{FileChange, RawCommit, SigStatus};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub type Id = u32;
 
@@ -59,7 +59,6 @@ pub enum Violation {
     DanglingIdLink { path: String, id: Id },
     MissingTitle { path: String },
     AbsoluteSelfLink { path: String, url: String },
-    RedirectCollision { slug: String, historical: Id, live: Id },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +74,6 @@ impl Violation {
         match self {
             // These don't corrupt the output; titles fall back to the slug.
             Violation::UnsignedCommit { .. }
-            | Violation::RedirectCollision { .. }
             | Violation::MissingTitle { .. }
             | Violation::AbsoluteSelfLink { .. }
             | Violation::NonMarkdownInRoot { .. } => Severity::Warning,
@@ -122,9 +120,6 @@ impl Violation {
             Violation::AbsoluteSelfLink { path, url } => {
                 format!("{path}: absolute self-link {url:?}; use the relative /id/N/ form")
             }
-            Violation::RedirectCollision { slug, historical, live } => format!(
-                "redirect for old slug {slug:?} (id {historical}) dropped; now owned by id {live}"
-            ),
         }
     }
 }
@@ -201,35 +196,33 @@ pub fn check_content(model: &Model, base_url: &str, path: &str, content: &str) -
     violations
 }
 
-/// Redirects (id permalinks + historical slugs). A historical slug now owned by
-/// a different live article yields to it, reported as a `RedirectCollision`.
-pub fn plan_redirects(model: &Model) -> (Vec<Redirect>, Vec<Violation>) {
-    let live: HashMap<&str, Id> =
-        model.articles.iter().map(|a| (a.slug.as_str(), a.id)).collect();
+/// Id permalinks. Slug history is deliberately not redirected: a retired slug
+/// gets a tombstone page instead, so a URL that changed hands never has to pick
+/// a winner. See `retired_slugs`.
+pub fn plan_redirects(model: &Model) -> Vec<Redirect> {
+    model
+        .articles
+        .iter()
+        .map(|a| Redirect { from: format!("/id/{}/", a.id), to: format!("/{}/", a.slug) })
+        .collect()
+}
 
-    let mut redirects = Vec::new();
-    let mut violations = Vec::new();
-
+/// Slugs some article has moved away from and no live article has reclaimed,
+/// deduped and sorted. A tombstone says only that something moved on, so two
+/// lineages sharing a retired slug need no disambiguation.
+pub fn retired_slugs(model: &Model) -> Vec<String> {
+    let live: HashSet<&str> = model.articles.iter().map(|a| a.slug.as_str()).collect();
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut out = Vec::new();
     for a in &model.articles {
-        let to = format!("/{}/", a.slug);
-        redirects.push(Redirect { from: format!("/id/{}/", a.id), to: to.clone() });
-
         for past in &a.past_slugs {
-            if past == &a.slug {
-                continue;
-            }
-            match live.get(past.as_str()) {
-                Some(&owner) if owner != a.id => violations.push(Violation::RedirectCollision {
-                    slug: past.clone(),
-                    historical: a.id,
-                    live: owner,
-                }),
-                _ => redirects.push(Redirect { from: format!("/{past}/"), to: to.clone() }),
+            if !live.contains(past.as_str()) && seen.insert(past.as_str()) {
+                out.push(past.clone());
             }
         }
     }
-
-    (redirects, violations)
+    out.sort();
+    out
 }
 
 fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
@@ -546,17 +539,52 @@ mod tests {
     }
 
     #[test]
-    fn reused_slug_yields_redirect_collision() {
+    fn redirects_are_id_permalinks_only() {
+        let h = [
+            c("create: direction", vec![added("src/direction.md")]),
+            c("move: rename", vec![renamed("src/direction.md", "src/choosing-direction.md")]),
+        ];
+        let reds = plan_redirects(&build_model(&h, "src"));
+        assert_eq!(
+            reds,
+            [Redirect { from: "/id/1/".into(), to: "/choosing-direction/".into() }]
+        );
+    }
+
+    #[test]
+    fn reclaimed_slug_is_not_retired() {
+        // Article 2 now lives at `direction`; its live page owns that path.
         let h = [
             c("create: direction", vec![added("src/direction.md")]),
             c("move: rename", vec![renamed("src/direction.md", "src/choosing-direction.md")]),
             c("create: new", vec![added("src/direction.md")]),
         ];
-        let m = build_model(&h, "src");
-        let (reds, viol) = plan_redirects(&m);
-        assert!(viol.iter().any(|v| matches!(v, Violation::RedirectCollision { .. })));
-        assert!(reds.iter().any(|r| r.from == "/id/1/"));
-        assert!(!reds.iter().any(|r| r.from == "/direction/"));
+        assert!(retired_slugs(&build_model(&h, "src")).is_empty());
+    }
+
+    #[test]
+    fn retired_slugs_collect_chains_and_dedupe_lineages() {
+        let h = [
+            // A chain: every slug the article passed through is retired.
+            c("create: a", vec![added("src/alpha.md")]),
+            c("move: a->b", vec![renamed("src/alpha.md", "src/bravo.md")]),
+            c("move: b->c", vec![renamed("src/bravo.md", "src/charlie.md")]),
+            // A second lineage that also passed through `alpha`.
+            c("create: a again", vec![added("src/alpha.md")]),
+            c("move: a->d", vec![renamed("src/alpha.md", "src/delta.md")]),
+        ];
+        assert_eq!(retired_slugs(&build_model(&h, "src")), ["alpha", "bravo"]);
+    }
+
+    #[test]
+    fn slug_returned_to_is_not_retired() {
+        // alpha -> bravo -> alpha: the article is live at `alpha` again.
+        let h = [
+            c("create: a", vec![added("src/alpha.md")]),
+            c("move: a->b", vec![renamed("src/alpha.md", "src/bravo.md")]),
+            c("move: b->a", vec![renamed("src/bravo.md", "src/alpha.md")]),
+        ];
+        assert_eq!(retired_slugs(&build_model(&h, "src")), ["bravo"]);
     }
 
     #[test]
