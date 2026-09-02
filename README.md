@@ -4,7 +4,8 @@ Tool for compiling the [gnostinomicon](https://gnostinomicon.oclyke.dev) — a
 body of notes managed as a git history of conventional commits.
 
 Each `create:` commit assigns an article a stable numeric id (its create-order);
-`update:` and `move:` commits evolve it. Because the id is a permanent handle,
+`update:` and `move:` commits evolve it. An article is exactly one markdown file,
+so a `create:` commit adds exactly one. Because the id is a permanent handle,
 links survive renames: source files reference articles by `/id/N/`, `build`
 renders pretty slug URLs, and `redirects` emits the id permalink map. Slugs are
 not permalinks — an address an article has moved away from gets a tombstone page
@@ -30,9 +31,11 @@ Unrecognized keys are ignored.
 
 - `wirrel index` — list articles (id, slug, title).
 - `wirrel check` — validate history: subject grammar, signatures, lineage, slug
-  collisions, single-article moves, meta commits not changing articles, dangling
-  `/id/N/` links, missing titles (no frontmatter `title` and no level-1
-  heading), absolute self-links, and non-markdown files under the article root.
+  collisions, commits doing only their own kind of work (a `create:` adds
+  exactly one article and changes nothing; an `update:` adds none; a `move:`
+  touches one article; a `meta:` changes no article), dangling `/id/N/` links,
+  missing titles (no frontmatter `title` and no level-1 heading), absolute
+  self-links, and non-markdown files under the article root.
 - `wirrel link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
 - `wirrel build --out dist` — render the site content: article pages (each with a
   created/updated header), a generated index (with recent changes), a full

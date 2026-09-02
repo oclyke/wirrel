@@ -50,6 +50,9 @@ pub enum Violation {
     BadSignature { sha: String },
     UnsignedCommit { sha: String },
     CreateWithoutFile { sha: String },
+    CreateAddsMultipleArticles { sha: String },
+    CreateTouchesExistingArticle { sha: String, path: String },
+    UpdateAddsArticle { sha: String, path: String },
     UpdateBeforeCreate { sha: String, path: String },
     MoveOfUnknown { sha: String, path: String },
     MoveTouchesMultipleArticles { sha: String },
@@ -92,6 +95,15 @@ impl Violation {
             Violation::UnsignedCommit { sha } => format!("{}: commit is not signed", short(sha)),
             Violation::CreateWithoutFile { sha } => {
                 format!("{}: `create:` added no markdown file", short(sha))
+            }
+            Violation::CreateAddsMultipleArticles { sha } => {
+                format!("{}: `create:` adds more than one article; split it", short(sha))
+            }
+            Violation::CreateTouchesExistingArticle { sha, path } => {
+                format!("{}: `create:` must only add; it changes {path}", short(sha))
+            }
+            Violation::UpdateAddsArticle { sha, path } => {
+                format!("{}: `update:` adds {path}; a new article needs `create:`", short(sha))
             }
             Violation::UpdateBeforeCreate { sha, path } => {
                 format!("{}: `update:` touched {path} before any `create:`", short(sha))
@@ -262,40 +274,66 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
             }
 
             CommitKind::Create => {
-                let path = match c.changed.iter().find_map(added_md) {
-                    Some(p) => p,
-                    None => {
-                        violations.push(Violation::CreateWithoutFile { sha: c.sha.clone() });
-                        continue;
-                    }
-                };
-                let slug = slug_of(root, &path);
-
-                if let Some(other) = slug_owner(&model, &by_path, &slug, None) {
-                    violations.push(Violation::SlugCollision {
-                        slug: slug.clone(),
-                        ids: (other, next_id),
+                // Changing a file that already exists is update or move work.
+                for f in &c.changed {
+                    let path = match f {
+                        FileChange::Modified(p) if is_md(p) => p,
+                        FileChange::Renamed { from, to } if is_md(from) || is_md(to) => from,
+                        _ => continue,
+                    };
+                    violations.push(Violation::CreateTouchesExistingArticle {
+                        sha: c.sha.clone(),
+                        path: path.clone(),
                     });
                 }
 
-                let idx = model.articles.len();
-                model.articles.push(Article {
-                    id: next_id,
-                    slug,
-                    path: path.clone(),
-                    created: c.date.clone(),
-                    updated: c.date.clone(),
-                    history: vec![c.sha.clone()],
-                    past_slugs: Vec::new(),
-                    frontmatter: Frontmatter::default(),
-                    title: None,
-                });
-                by_path.insert(path, idx);
-                next_id += 1;
+                // Each article needs its own id, so one `create:` means one file.
+                let added: Vec<String> = c.changed.iter().filter_map(added_md).collect();
+                match added.len() {
+                    0 => {
+                        violations.push(Violation::CreateWithoutFile { sha: c.sha.clone() });
+                        continue;
+                    }
+                    1 => {}
+                    _ => violations
+                        .push(Violation::CreateAddsMultipleArticles { sha: c.sha.clone() }),
+                }
+
+                for path in added {
+                    let slug = slug_of(root, &path);
+
+                    if let Some(other) = slug_owner(&model, &by_path, &slug, None) {
+                        violations.push(Violation::SlugCollision {
+                            slug: slug.clone(),
+                            ids: (other, next_id),
+                        });
+                    }
+
+                    let idx = model.articles.len();
+                    model.articles.push(Article {
+                        id: next_id,
+                        slug,
+                        path: path.clone(),
+                        created: c.date.clone(),
+                        updated: c.date.clone(),
+                        history: vec![c.sha.clone()],
+                        past_slugs: Vec::new(),
+                        frontmatter: Frontmatter::default(),
+                        title: None,
+                    });
+                    by_path.insert(path, idx);
+                    next_id += 1;
+                }
             }
 
             CommitKind::Update => {
                 for f in &c.changed {
+                    // A new article needs its own `create:` to earn an id.
+                    if let Some(p) = added_md(f) {
+                        violations
+                            .push(Violation::UpdateAddsArticle { sha: c.sha.clone(), path: p });
+                        continue;
+                    }
                     let Some(p) = touched_md(f) else { continue };
                     match by_path.get(&p) {
                         Some(&idx) => {
@@ -413,7 +451,7 @@ fn added_md(f: &FileChange) -> Option<String> {
 
 fn touched_md(f: &FileChange) -> Option<String> {
     match f {
-        FileChange::Added(p) | FileChange::Modified(p) if is_md(p) => Some(p.clone()),
+        FileChange::Modified(p) if is_md(p) => Some(p.clone()),
         FileChange::Renamed { to, .. } if is_md(to) => Some(to.clone()),
         _ => None,
     }
@@ -610,6 +648,38 @@ mod tests {
         let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
         let html = crate::markdown::render("[w](id:1)", &m);
         assert!(html.contains("href=\"/willow/\""));
+    }
+
+    #[test]
+    fn create_adding_multiple_articles_flagged() {
+        let h = [c(
+            "create: two at once",
+            vec![added("src/willow.md"), added("src/oak.md")],
+        )];
+        let v = check(&h, "src", &CheckOptions::default());
+        assert!(v.iter().any(|x| matches!(x, Violation::CreateAddsMultipleArticles { .. })));
+    }
+
+    #[test]
+    fn create_changing_an_existing_article_flagged() {
+        let h = [
+            c("create: willow", vec![added("src/willow.md")]),
+            c("create: oak", vec![added("src/oak.md"), modified("src/willow.md")]),
+        ];
+        let v = check(&h, "src", &CheckOptions::default());
+        assert!(v.iter().any(|x| matches!(x, Violation::CreateTouchesExistingArticle { path, .. } if path == "src/willow.md")));
+    }
+
+    #[test]
+    fn update_adding_an_article_flagged() {
+        let h = [
+            c("create: willow", vec![added("src/willow.md")]),
+            c("update: edits", vec![modified("src/willow.md"), added("src/oak.md")]),
+        ];
+        let v = check(&h, "src", &CheckOptions::default());
+        assert!(v.iter().any(|x| matches!(x, Violation::UpdateAddsArticle { path, .. } if path == "src/oak.md")));
+        // The specific message replaces the misleading "before any create".
+        assert!(!v.iter().any(|x| matches!(x, Violation::UpdateBeforeCreate { .. })));
     }
 
     #[test]
