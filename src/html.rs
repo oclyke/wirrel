@@ -18,10 +18,12 @@ pub fn date(ts: &str) -> &str {
     ts.get(..10).unwrap_or(ts)
 }
 
-/// Per-article metadata header showing creation and last-updated dates.
+/// Per-article metadata header: a way back to the index, plus creation and
+/// last-updated dates.
 pub fn meta_header(created: &str, updated: &str) -> String {
     format!(
-        "<header><small>created {} · updated {}</small></header>\n",
+        "<header><a href=\"{}\">index</a> <small>created {} · updated {}</small></header>\n",
+        url(""),
         date(created),
         date(updated)
     )
@@ -67,8 +69,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn header_shows_dates() {
+    fn header_links_index_and_shows_dates() {
         let h = meta_header("2026-01-02T00:00:00Z", "2026-03-04T12:00:00Z");
+        assert!(h.contains("href=\"/\">index</a>"));
         assert!(h.contains("created 2026-01-02"));
         assert!(h.contains("updated 2026-03-04"));
     }
