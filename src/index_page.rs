@@ -26,7 +26,7 @@ pub fn body(model: &Model, recent: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{FileChange, RawCommit, SigStatus};
+    use crate::git::{FileChange, RawCommit};
     use crate::model::build_model;
 
     #[test]
@@ -36,7 +36,6 @@ mod tests {
             subject: "create: willow".into(),
             body: String::new(),
             date: "2026-01-02T00:00:00Z".into(),
-            sig: SigStatus::Good,
             changed: vec![FileChange::Added("src/willow.md".into())],
         }];
         let mut model = build_model(&commits, "src");

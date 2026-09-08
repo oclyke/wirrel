@@ -35,7 +35,7 @@ fn list(heading: &str, articles: &[&Article], lead: impl Fn(&Article) -> String)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{FileChange, RawCommit, SigStatus};
+    use crate::git::{FileChange, RawCommit};
     use crate::model::build_model;
 
     fn model() -> Model {
@@ -45,7 +45,6 @@ mod tests {
                 subject: "create: willow".into(),
                 body: String::new(),
                 date: "2026-01-02T00:00:00Z".into(),
-                sig: SigStatus::Good,
                 changed: vec![FileChange::Added("src/willow.md".into())],
             },
             RawCommit {
@@ -53,7 +52,6 @@ mod tests {
                 subject: "create: oak".into(),
                 body: String::new(),
                 date: "2026-01-03T00:00:00Z".into(),
-                sig: SigStatus::Good,
                 changed: vec![FileChange::Added("src/oak.md".into())],
             },
         ];

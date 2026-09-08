@@ -80,7 +80,7 @@ Unrecognized keys are ignored.
 ## Commands
 
 - `wirrel index` — list articles (id, slug, title).
-- `wirrel check` — validate history: subject grammar, signatures, lineage, slug
+- `wirrel check` — validate history: subject grammar, lineage, slug
   collisions, commits doing only their own kind of work (a `create:` adds
   exactly one article and changes nothing; an `update:` adds none; a `move:`
   touches one article; a `meta:` changes no article), dangling `/id/N/` links,
@@ -95,8 +95,7 @@ Unrecognized keys are ignored.
   separate deploy tool to consume.
 
 Global flags: `--repo <path>` (default `.`), `--articles <dir>` (default
-`./articles`), `--assets <dir>` (default `./assets`), and
-`--no-verify-signatures`.
+`./articles`), and `--assets <dir>` (default `./assets`).
 
 The three path flags each read an environment variable when the flag is absent —
 `WIRREL_REPO`, `WIRREL_ARTICLES`, `WIRREL_ASSETS` — so a repo whose layout

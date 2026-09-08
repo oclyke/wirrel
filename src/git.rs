@@ -5,13 +5,6 @@ use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SigStatus {
-    Good,
-    Bad,
-    None,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileChange {
     Added(String),
     Modified(String),
@@ -24,7 +17,6 @@ pub struct RawCommit {
     pub subject: String,
     pub body: String,
     pub date: String,
-    pub sig: SigStatus,
     pub changed: Vec<FileChange>,
 }
 
@@ -35,7 +27,7 @@ pub fn load(repo: &Path) -> io::Result<Vec<RawCommit>> {
         "log",
         "--reverse",
         "-z",
-        "--format=%H%x1f%aI%x1f%G?%x1f%s%x1f%b",
+        "--format=%H%x1f%aI%x1f%s%x1f%b",
     ])?;
 
     let mut commits = Vec::new();
@@ -43,25 +35,16 @@ pub fn load(repo: &Path) -> io::Result<Vec<RawCommit>> {
         if record.trim().is_empty() {
             continue;
         }
-        let mut f = record.splitn(5, '\x1f');
+        let mut f = record.splitn(4, '\x1f');
         let sha = f.next().unwrap_or("").to_string();
         let date = f.next().unwrap_or("").to_string();
-        let sig = sig_status(f.next().unwrap_or("N"));
         let subject = f.next().unwrap_or("").to_string();
         let body = f.next().unwrap_or("").trim_end().to_string();
 
         let changed = load_changes(repo, &sha)?;
-        commits.push(RawCommit { sha, subject, body, date, sig, changed });
+        commits.push(RawCommit { sha, subject, body, date, changed });
     }
     Ok(commits)
-}
-
-fn sig_status(code: &str) -> SigStatus {
-    match code.chars().next().unwrap_or('N') {
-        'G' | 'U' => SigStatus::Good,
-        'N' => SigStatus::None,
-        _ => SigStatus::Bad,
-    }
 }
 
 fn load_changes(repo: &Path, sha: &str) -> io::Result<Vec<FileChange>> {

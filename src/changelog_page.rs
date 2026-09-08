@@ -44,7 +44,7 @@ pub fn body(model: &Model) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{FileChange, RawCommit, SigStatus};
+    use crate::git::{FileChange, RawCommit};
     use crate::model::build_model;
 
     fn commit(sha: &str, subject: &str, date: &str, changed: Vec<FileChange>) -> RawCommit {
@@ -53,7 +53,6 @@ mod tests {
             subject: subject.into(),
             body: String::new(),
             date: date.into(),
-            sig: SigStatus::Good,
             changed,
         }
     }

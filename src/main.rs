@@ -32,10 +32,6 @@ struct Cli {
     #[arg(long, env = "WIRREL_ASSETS", default_value = "./assets", global = true)]
     assets: String,
 
-    /// Skip commit signature checks.
-    #[arg(long, global = true)]
-    no_verify_signatures: bool,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -109,8 +105,7 @@ fn load_valid_model(cli: &Cli) -> Result<(Vec<git::RawCommit>, Model), Box<dyn E
 }
 
 fn collect_violations(cli: &Cli, commits: &[git::RawCommit], model: &Model) -> Vec<model::Violation> {
-    let opts = model::CheckOptions { verify_signatures: !cli.no_verify_signatures };
-    let mut violations = model::check(commits, &cli.articles, &opts);
+    let mut violations = model::check(commits, &cli.articles);
     for a in &model.articles {
         if let Ok(content) = fs::read_to_string(cli.repo.join(&a.path)) {
             violations.extend(model::check_content(model, &a.path, &content));

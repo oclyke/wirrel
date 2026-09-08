@@ -65,7 +65,7 @@ fn diff_class(line: &str) -> &'static str {
 mod tests {
     use super::*;
     use crate::commits::parse_subject;
-    use crate::git::{FileChange, RawCommit, SigStatus};
+    use crate::git::{FileChange, RawCommit};
     use crate::model::build_model;
 
     #[test]
@@ -75,7 +75,6 @@ mod tests {
             subject: "create: willow".into(),
             body: String::new(),
             date: "2026-01-01T00:00:00Z".into(),
-            sig: SigStatus::Good,
             changed: vec![FileChange::Added("src/willow.md".into())],
         }];
         let model = build_model(&commits, "src");

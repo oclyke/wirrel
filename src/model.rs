@@ -2,7 +2,7 @@
 
 use crate::commits::{parse_subject, CommitKind};
 use crate::frontmatter::Frontmatter;
-use crate::git::{FileChange, RawCommit, SigStatus};
+use crate::git::{FileChange, RawCommit};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
@@ -87,8 +87,6 @@ impl Model {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Violation {
     BadSubject { sha: String, subject: String },
-    BadSignature { sha: String },
-    UnsignedCommit { sha: String },
     CreateWithoutFile { sha: String },
     CreateAddsMultipleArticles { sha: String },
     CreateTouchesExistingArticle { sha: String, path: String },
@@ -115,9 +113,9 @@ impl Violation {
     pub fn severity(&self) -> Severity {
         match self {
             // These don't corrupt the output; titles fall back to the slug.
-            Violation::UnsignedCommit { .. }
-            | Violation::MissingTitle { .. }
-            | Violation::NonMarkdownInRoot { .. } => Severity::Warning,
+            Violation::MissingTitle { .. } | Violation::NonMarkdownInRoot { .. } => {
+                Severity::Warning
+            }
             _ => Severity::Error,
         }
     }
@@ -127,10 +125,6 @@ impl Violation {
             Violation::BadSubject { sha, subject } => {
                 format!("{}: subject not `<type>: <description>`: {subject:?}", short(sha))
             }
-            Violation::BadSignature { sha } => {
-                format!("{}: commit signature failed to verify", short(sha))
-            }
-            Violation::UnsignedCommit { sha } => format!("{}: commit is not signed", short(sha)),
             Violation::CreateWithoutFile { sha } => {
                 format!("{}: `create:` added no markdown file", short(sha))
             }
@@ -177,30 +171,13 @@ pub struct Redirect {
     pub to: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct CheckOptions {
-    pub verify_signatures: bool,
-}
-
-impl Default for CheckOptions {
-    fn default() -> Self {
-        Self { verify_signatures: true }
-    }
-}
-
 pub fn build_model(commits: &[RawCommit], root: &str) -> Model {
     fold(commits, root).0
 }
 
-/// Structural checks (grammar, signatures, lineage, slug collisions).
-pub fn check(commits: &[RawCommit], root: &str, opts: &CheckOptions) -> Vec<Violation> {
-    let mut violations = fold(commits, root).1;
-    if !opts.verify_signatures {
-        violations.retain(|v| {
-            !matches!(v, Violation::BadSignature { .. } | Violation::UnsignedCommit { .. })
-        });
-    }
-    violations
+/// Structural checks (grammar, lineage, slug collisions).
+pub fn check(commits: &[RawCommit], root: &str) -> Vec<Violation> {
+    fold(commits, root).1
 }
 
 /// Lint tracked files under the article root: everything there should be
@@ -280,12 +257,6 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
     let mut next_id: Id = 1;
 
     for c in commits {
-        match c.sig {
-            SigStatus::Bad => violations.push(Violation::BadSignature { sha: c.sha.clone() }),
-            SigStatus::None => violations.push(Violation::UnsignedCommit { sha: c.sha.clone() }),
-            SigStatus::Good => {}
-        }
-
         let subject = match parse_subject(&c.subject) {
             Ok(s) => s,
             Err(_) => {
@@ -519,7 +490,7 @@ fn changed_paths(f: &FileChange) -> Vec<&String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{FileChange, RawCommit, SigStatus};
+    use crate::git::{FileChange, RawCommit};
 
     fn c(subject: &str, changed: Vec<FileChange>) -> RawCommit {
         RawCommit {
@@ -527,7 +498,6 @@ mod tests {
             subject: subject.into(),
             body: String::new(),
             date: "2026-01-01T00:00:00Z".into(),
-            sig: SigStatus::Good,
             changed,
         }
     }
@@ -558,16 +528,8 @@ mod tests {
     #[test]
     fn update_before_create_flagged() {
         let h = [c("update: edits", vec![modified("src/foo.md")])];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(matches!(v.as_slice(), [Violation::UpdateBeforeCreate { .. }]));
-    }
-
-    #[test]
-    fn disabling_signatures_drops_signature_violations() {
-        let mut unsigned = c("create: x", vec![added("src/x.md")]);
-        unsigned.sig = SigStatus::None;
-        let opts = CheckOptions { verify_signatures: false };
-        assert!(check(&[unsigned], "src", &opts).is_empty());
     }
 
     #[test]
@@ -576,7 +538,7 @@ mod tests {
             c("create: willow", vec![added("src/willow.md")]),
             c("meta: tweak", vec![modified("src/willow.md")]),
         ];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(v.iter().any(|x| matches!(x, Violation::MetaTouchesArticle { .. })));
     }
 
@@ -586,7 +548,7 @@ mod tests {
             c("create: willow", vec![added("src/willow.md")]),
             c("meta: docs", vec![modified("README.md")]),
         ];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(!v.iter().any(|x| matches!(x, Violation::MetaTouchesArticle { .. })));
     }
 
@@ -600,7 +562,7 @@ mod tests {
         let a = m.by_slug("choosing-direction").unwrap();
         assert_eq!(a.id, 1);
         assert_eq!(a.past_slugs, ["direction"]);
-        assert!(check(&h, "src", &CheckOptions::default()).is_empty());
+        assert!(check(&h, "src").is_empty());
     }
 
     #[test]
@@ -610,7 +572,7 @@ mod tests {
             c("create: a", vec![added("src/dup.md")]),
             c("create: b", vec![added("src/dup/index.md")]),
         ];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(v.iter().any(|x| matches!(x, Violation::SlugCollision { .. })));
     }
 
@@ -703,7 +665,7 @@ mod tests {
             "create: two at once",
             vec![added("src/willow.md"), added("src/oak.md")],
         )];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(v.iter().any(|x| matches!(x, Violation::CreateAddsMultipleArticles { .. })));
     }
 
@@ -713,7 +675,7 @@ mod tests {
             c("create: willow", vec![added("src/willow.md")]),
             c("create: oak", vec![added("src/oak.md"), modified("src/willow.md")]),
         ];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(v.iter().any(|x| matches!(x, Violation::CreateTouchesExistingArticle { path, .. } if path == "src/willow.md")));
     }
 
@@ -723,7 +685,7 @@ mod tests {
             c("create: willow", vec![added("src/willow.md")]),
             c("update: edits", vec![modified("src/willow.md"), added("src/oak.md")]),
         ];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(v.iter().any(|x| matches!(x, Violation::UpdateAddsArticle { path, .. } if path == "src/oak.md")));
         // The specific message replaces the misleading "before any create".
         assert!(!v.iter().any(|x| matches!(x, Violation::UpdateBeforeCreate { .. })));
@@ -744,7 +706,7 @@ mod tests {
                 ],
             ),
         ];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(v.iter().any(|x| matches!(x, Violation::MoveTouchesMultipleArticles { .. })));
     }
 
@@ -755,7 +717,7 @@ mod tests {
             c("create: child", vec![added("src/dir/child.md")]),
             c("move: rename one", vec![renamed("src/dir/child.md", "src/dir/renamed.md")]),
         ];
-        let v = check(&h, "src", &CheckOptions::default());
+        let v = check(&h, "src");
         assert!(!v.iter().any(|x| matches!(x, Violation::MoveTouchesMultipleArticles { .. })));
     }
 
