@@ -23,10 +23,6 @@ struct Cli {
     #[arg(long, env = "WIRREL_REPO", default_value = ".", global = true)]
     repo: PathBuf,
 
-    /// Absolute site origin for canonical tags (e.g. https://example.com).
-    #[arg(long, default_value = "", global = true)]
-    base_url: String,
-
     /// Directory holding articles, relative to the repo root.
     #[arg(long, default_value = "./articles", global = true)]
     articles: String,
@@ -117,7 +113,7 @@ fn collect_violations(cli: &Cli, commits: &[git::RawCommit], model: &Model) -> V
     let mut violations = model::check(commits, &cli.articles, &opts);
     for a in &model.articles {
         if let Ok(content) = fs::read_to_string(cli.repo.join(&a.path)) {
-            violations.extend(model::check_content(model, &cli.base_url, &a.path, &content));
+            violations.extend(model::check_content(model, &a.path, &content));
         }
     }
     if let Ok(files) = git::tracked_files(&cli.repo) {
@@ -262,7 +258,6 @@ fn cmd_redirects(cli: &Cli) -> Result<(), Box<dyn Error>> {
 
 fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     let (commits, model) = load_valid_model(cli)?;
-    let base = cli.base_url.trim_end_matches('/');
     fs::create_dir_all(out)?;
     write_assets(&cli.repo.join(&cli.assets), out)?;
 
@@ -283,7 +278,7 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
             .unwrap_or_default();
 
         let body = format!("{header}{lead}{rendered}");
-        write_route(out, &route, &html::page(&title, &format!("{base}{route}"), &body))?;
+        write_route(out, &route, &html::page(&title, &route, &body))?;
 
         // The id is the permanent handle; the stub makes it resolve even where
         // the redirect map can't be installed.
@@ -292,7 +287,6 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
 
         write_page(
             out,
-            base,
             &routes::changes_for(a.id),
             &format!("changes: {title}"),
             &changes_page::body(&model, a),
@@ -301,28 +295,24 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
 
     write_page(
         out,
-        base,
         &routes::index(),
         "index",
         &index_page::body(&model, INDEX_RECENT),
     )?;
     write_page(
         out,
-        base,
         &routes::articles_by_path(),
         "articles by path",
         &articles_page::by_path(&model),
     )?;
     write_page(
         out,
-        base,
         &routes::articles_by_id(),
         "articles by id",
         &articles_page::by_id(&model),
     )?;
     write_page(
         out,
-        base,
         &routes::changelog(),
         "changelog",
         &changelog_page::body(&model),
@@ -354,7 +344,6 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         let diff = git::commit_diff(&cli.repo, &c.sha)?;
         write_page(
             out,
-            base,
             &routes::change(&c.sha),
             &format!("{}: {}", subject.kind.label(), subject.description),
             &change_page::body(&model, &subject, &c.body, &c.sha, &diff),
@@ -407,12 +396,11 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), Box<dyn Error>> {
 /// Render a page into the shell and write it at its route.
 fn write_page(
     out: &Path,
-    base: &str,
     route: &str,
     title: &str,
     body: &str,
 ) -> Result<(), Box<dyn Error>> {
-    write_route(out, route, &html::page(title, &format!("{base}{route}"), body))?;
+    write_route(out, route, &html::page(title, route, body))?;
     Ok(())
 }
 

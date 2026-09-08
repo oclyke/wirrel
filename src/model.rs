@@ -101,7 +101,6 @@ pub enum Violation {
     NonMarkdownInRoot { path: String },
     DanglingIdLink { path: String, id: Id },
     MissingTitle { path: String },
-    AbsoluteSelfLink { path: String, url: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,7 +117,6 @@ impl Violation {
             // These don't corrupt the output; titles fall back to the slug.
             Violation::UnsignedCommit { .. }
             | Violation::MissingTitle { .. }
-            | Violation::AbsoluteSelfLink { .. }
             | Violation::NonMarkdownInRoot { .. } => Severity::Warning,
             _ => Severity::Error,
         }
@@ -168,9 +166,6 @@ impl Violation {
             }
             Violation::MissingTitle { path } => {
                 format!("{path}: no frontmatter `title` and no level-1 heading")
-            }
-            Violation::AbsoluteSelfLink { path, url } => {
-                format!("{path}: absolute self-link {url:?}; use the relative /id/N/ form")
             }
         }
     }
@@ -223,9 +218,8 @@ pub fn check_tracked_files(root: &str, assets: &str, files: &[String]) -> Vec<Vi
         .collect()
 }
 
-/// Content checks for one article file: missing title, dangling id links, and
-/// absolute self-links that should use the relative `/id/N/` form.
-pub fn check_content(model: &Model, base_url: &str, path: &str, content: &str) -> Vec<Violation> {
+/// Content checks for one article file: missing title and dangling id links.
+pub fn check_content(model: &Model, path: &str, content: &str) -> Vec<Violation> {
     let mut violations = Vec::new();
 
     if crate::markdown::extract_title(content).is_none() {
@@ -239,15 +233,6 @@ pub fn check_content(model: &Model, base_url: &str, path: &str, content: &str) -
             .filter(|&id| id == 0 || id > max || model.by_id(id).is_none())
             .map(|id| Violation::DanglingIdLink { path: path.to_string(), id }),
     );
-
-    let origin = base_url.trim_end_matches('/');
-    if !origin.is_empty() {
-        for dest in crate::markdown::link_dests(content) {
-            if dest.starts_with(origin) {
-                violations.push(Violation::AbsoluteSelfLink { path: path.to_string(), url: dest });
-            }
-        }
-    }
 
     violations
 }
@@ -700,19 +685,9 @@ mod tests {
     #[test]
     fn content_check_finds_missing_title_and_dangling_link() {
         let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
-        let v = check_content(&m, "https://x.dev", "src/willow.md", "no heading [x](id:99)");
+        let v = check_content(&m, "src/willow.md", "no heading [x](id:99)");
         assert!(v.iter().any(|x| matches!(x, Violation::MissingTitle { .. })));
         assert!(v.iter().any(|x| matches!(x, Violation::DanglingIdLink { id: 99, .. })));
-    }
-
-    #[test]
-    fn absolute_self_link_flagged_but_not_foreign() {
-        let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
-        let content = "# t\n[self](https://site.dev/id/1) [ext](https://other.site/id/1)";
-        let v = check_content(&m, "https://site.dev", "src/willow.md", content);
-        let flagged: Vec<_> =
-            v.iter().filter(|x| matches!(x, Violation::AbsoluteSelfLink { .. })).collect();
-        assert_eq!(flagged.len(), 1);
     }
 
     #[test]

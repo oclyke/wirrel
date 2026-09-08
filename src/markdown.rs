@@ -92,17 +92,6 @@ pub fn id_refs(md: &str) -> Vec<Id> {
     ids
 }
 
-/// Every link/image destination in the document.
-pub fn link_dests(md: &str) -> Vec<String> {
-    let mut dests = Vec::new();
-    for ev in parser(md) {
-        if let Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) = ev {
-            dests.push(dest_url.to_string());
-        }
-    }
-    dests
-}
-
 /// Extract an article id from an internal ref: `id:2`, `/id/2`, or `/id/2/`.
 /// Absolute/foreign URLs (e.g. `https://other.site/id/2`) are left untouched.
 pub fn parse_id_ref(dest: &str) -> Option<Id> {

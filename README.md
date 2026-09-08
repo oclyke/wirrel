@@ -84,8 +84,8 @@ Unrecognized keys are ignored.
   collisions, commits doing only their own kind of work (a `create:` adds
   exactly one article and changes nothing; an `update:` adds none; a `move:`
   touches one article; a `meta:` changes no article), dangling `/id/N/` links,
-  missing titles (no frontmatter `title` and no level-1 heading), absolute
-  self-links, and non-markdown files under the article root.
+  missing titles (no frontmatter `title` and no level-1 heading), and
+  non-markdown files under the article root.
 - `wirrel link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
 - `wirrel build --out dist` — render the site content: article pages (each with a
   created/updated header linking its changes), the index, both article listings,
@@ -94,9 +94,14 @@ Unrecognized keys are ignored.
 - `wirrel redirects` — print the id permalink map as JSON on stdout, for a
   separate deploy tool to consume.
 
-Global flags: `--repo <path>` (or `WIRREL_REPO`, default `.`), `--base-url <url>`,
-`--articles <dir>` (default `./articles`), `--assets <dir>` (default
-`./assets`), and `--no-verify-signatures`.
+Global flags: `--repo <path>` (or `WIRREL_REPO`, default `.`), `--articles
+<dir>` (default `./articles`), `--assets <dir>` (default `./assets`), and
+`--no-verify-signatures`.
+
+Every URL wirrel emits is root-relative — links, the canonical tag, the redirect
+map. The tool never needs to know the origin it will be served from, so the site
+builds the same whatever host answers for it, and a preview deploy is a working
+copy rather than one pointing at production.
 
 ## Retired slugs
 
