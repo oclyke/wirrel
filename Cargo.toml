@@ -14,10 +14,10 @@ exclude = [
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
+crossterm = "0.29"
 nucleo-matcher = "0.3"
 pulldown-cmark = "0.12"
 regex = "1"
-skim = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
