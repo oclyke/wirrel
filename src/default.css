@@ -1,0 +1,26 @@
+/* wirrel's default stylesheet.
+ *
+ * Written to `assets/style.css` only when the repo has no `assets/` directory
+ * supplying its own. Add one and it replaces this file wholesale — carry the
+ * `.diff` rules over if you still want colorized diffs, since those are the one
+ * piece of styling wirrel's pages depend on rather than merely prefer.
+ */
+
+.diff {
+  background: #f6f8fa;
+  padding: 1em;
+  overflow: auto;
+}
+.diff .add {
+  color: #116329;
+}
+.diff .del {
+  color: #a40e26;
+}
+.diff .hunk {
+  color: #795da3;
+}
+.diff .file {
+  color: #57606a;
+  font-weight: bold;
+}

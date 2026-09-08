@@ -8,6 +8,17 @@ pub enum CommitKind {
     Meta,
 }
 
+impl CommitKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            CommitKind::Create => "create",
+            CommitKind::Update => "update",
+            CommitKind::Move => "move",
+            CommitKind::Meta => "meta",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Subject {
     pub kind: CommitKind,

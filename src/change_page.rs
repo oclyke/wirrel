@@ -1,28 +1,38 @@
-//! Generated per-update page: an update commit's description and its git diff.
+//! Generated per-commit page: what one change did, and its git diff.
 
-use crate::html::{escape, url};
-use crate::model::Article;
+use crate::commits::Subject;
+use crate::html::{escape, slug_change};
+use crate::model::{ChangeKind, Model};
+use crate::routes;
 
-const STYLE: &str = "<style>\
-.diff{background:#f6f8fa;padding:1em;overflow:auto}\
-.diff .add{color:#116329}.diff .del{color:#a40e26}\
-.diff .hunk{color:#795da3}.diff .file{color:#57606a;font-weight:bold}\
-</style>\n";
-
-/// Render the page body: description, optional commit body, links to the touched
-/// article(s), and the colorized diff.
-pub fn body(description: &str, commit_body: &str, touched: &[&Article], diff: &str) -> String {
+/// Description, optional commit body, the article(s) the commit touched, and
+/// the colorized diff.
+pub fn body(model: &Model, subject: &Subject, commit_body: &str, sha: &str, diff: &str) -> String {
     let mut out = String::new();
-    out.push_str(STYLE);
-    out.push_str(&format!("<h1>update: {}</h1>\n", escape(description)));
+    out.push_str(&format!(
+        "<h1>{}: {}</h1>\n",
+        subject.kind.label(),
+        escape(&subject.description)
+    ));
 
     if !commit_body.trim().is_empty() {
         out.push_str(&format!("<p>{}</p>\n", escape(commit_body.trim())));
     }
 
-    for a in touched {
+    for c in model.changes_in(sha) {
+        let Some(a) = model.by_id(c.article) else { continue };
         let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
-        out.push_str(&format!("<p>article: <a href=\"{}\">{}</a></p>\n", url(&a.slug), escape(&title)));
+        let moved = match &c.kind {
+            ChangeKind::Move { from, to } => slug_change(from, to),
+            _ => String::new(),
+        };
+        out.push_str(&format!(
+            "<p>article: <a href=\"{}\">{}</a>{} · <a href=\"{}\">changes</a></p>\n",
+            routes::article(&a.slug),
+            escape(&title),
+            moved,
+            routes::changes_for(a.id),
+        ));
     }
 
     out.push_str("<pre class=\"diff\">");
@@ -54,11 +64,12 @@ fn diff_class(line: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commits::parse_subject;
     use crate::git::{FileChange, RawCommit, SigStatus};
     use crate::model::build_model;
 
     #[test]
-    fn renders_description_and_classified_diff() {
+    fn renders_description_touched_article_and_classified_diff() {
         let commits = [RawCommit {
             sha: "s1".into(),
             subject: "create: willow".into(),
@@ -68,14 +79,15 @@ mod tests {
             changed: vec![FileChange::Added("src/willow.md".into())],
         }];
         let model = build_model(&commits, "src");
-        let touched: Vec<&Article> = model.articles.iter().collect();
+        let subject = parse_subject("update: typo fix").unwrap();
 
         let diff = "@@ -1 +1 @@\n-old\n+new\n context";
-        let html = body("typo fix", "more detail", &touched, diff);
+        let html = body(&model, &subject, "more detail", "s1", diff);
 
         assert!(html.contains("<h1>update: typo fix</h1>"));
         assert!(html.contains("more detail"));
-        assert!(html.contains("href=\"/willow/\""));
+        assert!(html.contains("href=\"/article/willow/\""));
+        assert!(html.contains("href=\"/changes/by-id/1/\""));
         assert!(html.contains("class=\"hunk\">@@ -1 +1 @@"));
         assert!(html.contains("class=\"del\">-old"));
         assert!(html.contains("class=\"add\">+new"));

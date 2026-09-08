@@ -16,7 +16,6 @@ pub struct Article {
     pub path: String,
     pub created: String,
     pub updated: String,
-    pub history: Vec<String>,
     pub past_slugs: Vec<String>,
 
     // Derived from the working-tree file; empty until `enrich_from_files` runs.
@@ -25,9 +24,40 @@ pub struct Article {
     pub title: Option<String>,
 }
 
+/// What one commit did to one article. An `update:` touching two articles
+/// yields two of these, sharing a sha.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Change {
+    pub article: Id,
+    pub sha: String,
+    pub date: String,
+    pub description: String,
+    pub kind: ChangeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum ChangeKind {
+    Create,
+    Update,
+    /// Slugs, not paths: a rename that leaves the route alone has `from == to`.
+    Move { from: String, to: String },
+}
+
+impl ChangeKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ChangeKind::Create => "create",
+            ChangeKind::Update => "update",
+            ChangeKind::Move { .. } => "move",
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Model {
     pub articles: Vec<Article>,
+    /// Every article-affecting commit, oldest first.
+    pub changes: Vec<Change>,
 }
 
 impl Model {
@@ -41,6 +71,16 @@ impl Model {
 
     pub fn max_id(&self) -> Id {
         self.articles.iter().map(|a| a.id).max().unwrap_or(0)
+    }
+
+    /// One article's changes, oldest first.
+    pub fn changes_for(&self, id: Id) -> impl Iterator<Item = &Change> {
+        self.changes.iter().filter(move |c| c.article == id)
+    }
+
+    /// What one commit did — more than one article for a multi-file `update:`.
+    pub fn changes_in<'a>(&'a self, sha: &'a str) -> impl Iterator<Item = &'a Change> {
+        self.changes.iter().filter(move |c| c.sha == sha)
     }
 }
 
@@ -169,12 +209,16 @@ pub fn check(commits: &[RawCommit], root: &str, opts: &CheckOptions) -> Vec<Viol
 }
 
 /// Lint tracked files under the article root: everything there should be
-/// markdown.
-pub fn check_tracked_files(root: &str, files: &[String]) -> Vec<Violation> {
+/// markdown. The assets directory is the exception — it exists to hold the
+/// things that aren't — and only matters when it sits inside the article root,
+/// which the default layout keeps it out of.
+pub fn check_tracked_files(root: &str, assets: &str, files: &[String]) -> Vec<Violation> {
     let prefix = root_prefix(root);
+    let assets = root_prefix(assets);
     files
         .iter()
         .filter(|f| f.starts_with(&prefix) && !f.ends_with(".md"))
+        .filter(|f| assets.is_empty() || !f.starts_with(&assets))
         .map(|f| Violation::NonMarkdownInRoot { path: f.clone() })
         .collect()
 }
@@ -208,14 +252,21 @@ pub fn check_content(model: &Model, base_url: &str, path: &str, content: &str) -
     violations
 }
 
-/// Id permalinks. Slug history is deliberately not redirected: a retired slug
-/// gets a tombstone page instead, so a URL that changed hands never has to pick
-/// a winner. See `retired_slugs`.
+/// Id permalinks, for hosts that can serve a real redirect; `build` also writes
+/// a stub page at each. Slug history is deliberately not redirected: a retired
+/// slug gets a tombstone page instead, so a URL that changed hands never has to
+/// pick a winner. See `retired_slugs`.
 pub fn plan_redirects(model: &Model) -> Vec<Redirect> {
     model
         .articles
         .iter()
-        .map(|a| Redirect { from: format!("/id/{}/", a.id), to: format!("/{}/", a.slug) })
+        .flat_map(|a| {
+            let to = crate::routes::article(&a.slug);
+            [
+                Redirect { from: crate::routes::article_by_id(a.id), to: to.clone() },
+                Redirect { from: crate::routes::id_permalink(a.id), to },
+            ]
+        })
         .collect()
 }
 
@@ -316,11 +367,11 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
                         path: path.clone(),
                         created: c.date.clone(),
                         updated: c.date.clone(),
-                        history: vec![c.sha.clone()],
                         past_slugs: Vec::new(),
                         frontmatter: Frontmatter::default(),
                         title: None,
                     });
+                    model.changes.push(change(c, &subject, next_id, ChangeKind::Create));
                     by_path.insert(path, idx);
                     next_id += 1;
                 }
@@ -337,8 +388,9 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
                     let Some(p) = touched_md(f) else { continue };
                     match by_path.get(&p) {
                         Some(&idx) => {
-                            model.articles[idx].history.push(c.sha.clone());
                             model.articles[idx].updated = c.date.clone();
+                            let id = model.articles[idx].id;
+                            model.changes.push(change(c, &subject, id, ChangeKind::Update));
                         }
                         None => violations.push(Violation::UpdateBeforeCreate {
                             sha: c.sha.clone(),
@@ -364,16 +416,19 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
                     };
 
                     let new_slug = slug_of(root, to);
-                    {
+                    let old_slug = {
                         let art = &mut model.articles[idx];
+                        let old = art.slug.clone();
                         if art.slug != new_slug {
                             art.past_slugs.push(art.slug.clone());
                         }
                         art.slug = new_slug.clone();
                         art.path = to.clone();
-                        art.history.push(c.sha.clone());
                         art.updated = c.date.clone();
-                    }
+                        old
+                    };
+                    let kind = ChangeKind::Move { from: old_slug, to: new_slug.clone() };
+                    model.changes.push(change(c, &subject, model.articles[idx].id, kind));
                     by_path.insert(to.clone(), idx);
                     if !touched.contains(&idx) {
                         touched.push(idx);
@@ -397,6 +452,16 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
     (model, violations)
 }
 
+fn change(c: &RawCommit, subject: &crate::commits::Subject, article: Id, kind: ChangeKind) -> Change {
+    Change {
+        article,
+        sha: c.sha.clone(),
+        date: c.date.clone(),
+        description: subject.description.clone(),
+        kind,
+    }
+}
+
 fn slug_owner(
     model: &Model,
     by_path: &HashMap<String, usize>,
@@ -418,9 +483,10 @@ fn is_md(path: &str) -> bool {
     path.ends_with(".md")
 }
 
-/// `foo/` for a root of `foo`; empty for `.` (repo root).
+/// `foo/` for a root of `foo`, `./foo` or `foo/`; empty for the repo root.
 fn root_prefix(root: &str) -> String {
     let root = root.trim_end_matches('/');
+    let root = root.strip_prefix("./").unwrap_or(root);
     if root.is_empty() || root == "." {
         String::new()
     } else {
@@ -585,7 +651,13 @@ mod tests {
         let reds = plan_redirects(&build_model(&h, "src"));
         assert_eq!(
             reds,
-            [Redirect { from: "/id/1/".into(), to: "/choosing-direction/".into() }]
+            [
+                Redirect {
+                    from: "/articles/by-id/1/".into(),
+                    to: "/article/choosing-direction/".into()
+                },
+                Redirect { from: "/id/1/".into(), to: "/article/choosing-direction/".into() },
+            ]
         );
     }
 
@@ -647,7 +719,7 @@ mod tests {
     fn render_hydrates_id_link() {
         let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
         let html = crate::markdown::render("[w](id:1)", &m);
-        assert!(html.contains("href=\"/willow/\""));
+        assert!(html.contains("href=\"/article/willow/\""));
     }
 
     #[test]
@@ -715,12 +787,29 @@ mod tests {
     #[test]
     fn non_markdown_under_root_flagged() {
         let files = vec![
-            "src/willow.md".to_string(),
-            "src/notes.txt".to_string(),
-            "README.md".to_string(),      // outside root
-            "assets/logo.png".to_string(), // outside root
+            "articles/willow.md".to_string(),
+            "articles/notes.txt".to_string(),
+            "README.md".to_string(),        // outside root
+            "assets/style.css".to_string(), // outside root
         ];
-        let v = check_tracked_files("src", &files);
-        assert!(matches!(v.as_slice(), [Violation::NonMarkdownInRoot { path }] if path == "src/notes.txt"));
+        let v = check_tracked_files("./articles", "./assets", &files);
+        assert!(matches!(v.as_slice(), [Violation::NonMarkdownInRoot { path }] if path == "articles/notes.txt"));
+    }
+
+    #[test]
+    fn assets_exempt_where_they_sit_inside_the_article_root() {
+        let files = vec!["assets/style.css".to_string(), "notes.txt".to_string()];
+        let v = check_tracked_files(".", "assets", &files);
+        assert!(matches!(v.as_slice(), [Violation::NonMarkdownInRoot { path }] if path == "notes.txt"));
+
+        // Somewhere else entirely, and the exemption follows it.
+        let files = vec!["static/logo.png".to_string()];
+        assert!(check_tracked_files(".", "./static", &files).is_empty());
+    }
+
+    #[test]
+    fn leading_dot_slash_is_the_same_root() {
+        let h = [c("create: willow", vec![added("articles/willow.md")])];
+        assert_eq!(build_model(&h, "./articles").by_id(1).unwrap().slug, "willow");
     }
 }

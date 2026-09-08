@@ -1,10 +1,12 @@
 use clap::{Parser, Subcommand};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
-use wirrel::commits::{parse_subject, CommitKind};
+use wirrel::commits::parse_subject;
 use wirrel::model::{self, Article, Model, Severity};
-use wirrel::{frontmatter, git, gone_page, history_page, html, index_page, markdown, update_page};
-use std::collections::HashMap;
+use wirrel::{
+    articles_page, change_page, changelog_page, changes_page, frontmatter, git, gone_page, html,
+    index_page, markdown, routes,
+};
 use skim::prelude::{unbounded, Skim, SkimItem, SkimItemReceiver, SkimItemSender, SkimOptionsBuilder};
 use std::borrow::Cow;
 use std::error::Error;
@@ -26,8 +28,13 @@ struct Cli {
     base_url: String,
 
     /// Directory holding articles, relative to the repo root.
-    #[arg(long, default_value = ".", global = true)]
-    article_root: String,
+    #[arg(long, default_value = "./articles", global = true)]
+    articles: String,
+
+    /// Directory holding site assets, relative to the repo root. Its contents
+    /// are copied verbatim; where they land is the address scheme's business.
+    #[arg(long, default_value = "./assets", global = true)]
+    assets: String,
 
     /// Skip commit signature checks.
     #[arg(long, global = true)]
@@ -77,7 +84,7 @@ fn main() {
 
 fn load_model(cli: &Cli) -> Result<Model, Box<dyn Error>> {
     let commits = git::load(&cli.repo)?;
-    let mut model = model::build_model(&commits, &cli.article_root);
+    let mut model = model::build_model(&commits, &cli.articles);
     enrich_from_files(&cli.repo, &mut model);
     Ok(model)
 }
@@ -85,7 +92,7 @@ fn load_model(cli: &Cli) -> Result<Model, Box<dyn Error>> {
 /// Load commits + model, erroring out if the repo doesn't pass `check`.
 fn load_valid_model(cli: &Cli) -> Result<(Vec<git::RawCommit>, Model), Box<dyn Error>> {
     let commits = git::load(&cli.repo)?;
-    let mut model = model::build_model(&commits, &cli.article_root);
+    let mut model = model::build_model(&commits, &cli.articles);
     enrich_from_files(&cli.repo, &mut model);
 
     let violations = collect_violations(cli, &commits, &model);
@@ -107,14 +114,14 @@ fn load_valid_model(cli: &Cli) -> Result<(Vec<git::RawCommit>, Model), Box<dyn E
 
 fn collect_violations(cli: &Cli, commits: &[git::RawCommit], model: &Model) -> Vec<model::Violation> {
     let opts = model::CheckOptions { verify_signatures: !cli.no_verify_signatures };
-    let mut violations = model::check(commits, &cli.article_root, &opts);
+    let mut violations = model::check(commits, &cli.articles, &opts);
     for a in &model.articles {
         if let Ok(content) = fs::read_to_string(cli.repo.join(&a.path)) {
             violations.extend(model::check_content(model, &cli.base_url, &a.path, &content));
         }
     }
     if let Ok(files) = git::tracked_files(&cli.repo) {
-        violations.extend(model::check_tracked_files(&cli.article_root, &files));
+        violations.extend(model::check_tracked_files(&cli.articles, &cli.assets, &files));
     }
     violations
 }
@@ -139,7 +146,7 @@ fn cmd_index(cli: &Cli) -> Result<(), Box<dyn Error>> {
 
 fn cmd_check(cli: &Cli) -> Result<(), Box<dyn Error>> {
     let commits = git::load(&cli.repo)?;
-    let model = model::build_model(&commits, &cli.article_root);
+    let model = model::build_model(&commits, &cli.articles);
     let violations = collect_violations(cli, &commits, &model);
 
     let (errors, warnings): (Vec<_>, Vec<_>) =
@@ -178,7 +185,7 @@ fn cmd_link(cli: &Cli, query: Option<&str>) -> Result<(), Box<dyn Error>> {
 /// slug, and it also resolves via the 301 redirect when hydration doesn't run.
 fn link(a: &Article) -> String {
     let text = a.title.clone().unwrap_or_else(|| a.slug.clone());
-    format!("[{}](/id/{}/)", text, a.id)
+    format!("[{}]({})", text, routes::id_permalink(a.id))
 }
 
 struct ArticleItem {
@@ -243,8 +250,7 @@ fn link_filtered(model: &Model, query: &str) {
     }
 }
 
-/// Recent events shown on the full history page and on the index.
-const HISTORY_LIMIT: usize = 25;
+/// How many recent events the index shows; the changelog is complete.
 const INDEX_RECENT: usize = 5;
 
 fn cmd_redirects(cli: &Cli) -> Result<(), Box<dyn Error>> {
@@ -258,13 +264,14 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     let (commits, model) = load_valid_model(cli)?;
     let base = cli.base_url.trim_end_matches('/');
     fs::create_dir_all(out)?;
+    write_assets(&cli.repo.join(&cli.assets), out)?;
 
     for a in &model.articles {
         let content = fs::read_to_string(cli.repo.join(&a.path))?;
-        let header = html::meta_header(&a.created, &a.updated);
+        let header = html::meta_header(a.id, &a.created, &a.updated);
         let rendered = markdown::render(&content, &model);
         let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
-        let canonical = format!("{base}{}", html::url(&a.slug));
+        let route = routes::article(&a.slug);
         // A frontmatter title with no heading in the body has to lead the page
         // itself, or the article renders with no visible title at all.
         let lead = a
@@ -275,34 +282,60 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
             .map(|t| format!("<h1>{}</h1>\n", html::escape(t)))
             .unwrap_or_default();
 
-        let dir = out.join(&a.slug);
-        fs::create_dir_all(&dir)?;
         let body = format!("{header}{lead}{rendered}");
-        fs::write(dir.join("index.html"), html::page(&title, &canonical, &body))?;
+        write_route(out, &route, &html::page(&title, &format!("{base}{route}"), &body))?;
+
+        // The id is the permanent handle; the stub makes it resolve even where
+        // the redirect map can't be installed.
+        let by_id = routes::article_by_id(a.id);
+        write_route(out, &by_id, &html::stub_page(&format!("id {}", a.id), &route))?;
+
+        write_page(
+            out,
+            base,
+            &routes::changes_for(a.id),
+            &format!("changes: {title}"),
+            &changes_page::body(&model, a),
+        )?;
     }
 
-    // Generated pages: site index (with recent changes) and full history.
-    let index = html::page("index", &format!("{base}/"), &index_page::body(&commits, &model, INDEX_RECENT));
-    fs::write(out.join("index.html"), index)?;
-
-    let history = html::page(
-        "update history",
-        &format!("{base}/history/"),
-        &history_page::body(&commits, &model, HISTORY_LIMIT),
-    );
-    let history_dir = out.join("history");
-    fs::create_dir_all(&history_dir)?;
-    fs::write(history_dir.join("index.html"), history)?;
+    write_page(
+        out,
+        base,
+        &routes::index(),
+        "index",
+        &index_page::body(&model, INDEX_RECENT),
+    )?;
+    write_page(
+        out,
+        base,
+        &routes::articles_by_path(),
+        "articles by path",
+        &articles_page::by_path(&model),
+    )?;
+    write_page(
+        out,
+        base,
+        &routes::articles_by_id(),
+        "articles by id",
+        &articles_page::by_id(&model),
+    )?;
+    write_page(
+        out,
+        base,
+        &routes::changelog(),
+        "changelog",
+        &changelog_page::body(&model),
+    )?;
 
     // Dead ends. A slug an article moved away from keeps a tombstone so the
     // address stays honest without forwarding; `404.html` covers the rest.
     let retired = model::retired_slugs(&model);
     for slug in &retired {
-        let dir = out.join(slug);
-        fs::create_dir_all(&dir)?;
-        fs::write(
-            dir.join("index.html"),
-            html::dead_end_page("this article has moved", &gone_page::moved_body()),
+        write_route(
+            out,
+            &routes::article(slug),
+            &html::dead_end_page("this article has moved", &gone_page::moved_body()),
         )?;
     }
     fs::write(
@@ -310,38 +343,84 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         html::dead_end_page("no such article", &gone_page::missing_body()),
     )?;
 
-    // A dedicated diff page per `update:` commit.
-    let mut by_sha: HashMap<&str, Vec<&Article>> = HashMap::new();
-    for a in &model.articles {
-        for sha in &a.history {
-            by_sha.entry(sha.as_str()).or_default().push(a);
-        }
-    }
-    let mut updates = 0;
+    // A page per commit that touched an article, so every changelog row lands
+    // somewhere: creates and moves, not just updates.
+    let mut changes = 0;
     for c in &commits {
         let Ok(subject) = parse_subject(&c.subject) else { continue };
-        if !matches!(subject.kind, CommitKind::Update) {
+        if model.changes_in(&c.sha).next().is_none() {
             continue;
         }
         let diff = git::commit_diff(&cli.repo, &c.sha)?;
-        let touched = by_sha.get(c.sha.as_str()).cloned().unwrap_or_default();
-        let page = html::page(
-            &format!("update: {}", subject.description),
-            &format!("{base}/updates/{}/", c.sha),
-            &update_page::body(&subject.description, &c.body, &touched, &diff),
-        );
-        let dir = out.join("updates").join(&c.sha);
-        fs::create_dir_all(&dir)?;
-        fs::write(dir.join("index.html"), page)?;
-        updates += 1;
+        write_page(
+            out,
+            base,
+            &routes::change(&c.sha),
+            &format!("{}: {}", subject.kind.label(), subject.description),
+            &change_page::body(&model, &subject, &c.body, &c.sha, &diff),
+        )?;
+        changes += 1;
     }
 
     println!(
-        "built {} articles + index + history + {} update pages + {} tombstones -> {}",
+        "built {} articles + index + listings + changelog + {} change pages + {} tombstones -> {}",
         model.articles.len(),
-        updates,
+        changes,
         retired.len(),
         out.display()
     );
+    Ok(())
+}
+
+/// Site assets: whatever the assets directory holds, verbatim. wirrel supplies
+/// its own stylesheet only when the repo doesn't, so the diff colouring works
+/// out of the box without ever overwriting a stylesheet the author added.
+fn write_assets(src: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
+    let dir = out.join(routes::ASSETS_DIR);
+    fs::create_dir_all(&dir)?;
+    copy_tree(src, &dir)?;
+
+    let stylesheet = dir.join("style.css");
+    if !stylesheet.exists() {
+        fs::write(stylesheet, html::DEFAULT_STYLESHEET)?;
+    }
+    Ok(())
+}
+
+fn copy_tree(src: &Path, dst: &Path) -> Result<(), Box<dyn Error>> {
+    if !src.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            fs::create_dir_all(&to)?;
+            copy_tree(&entry.path(), &to)?;
+        } else {
+            fs::copy(entry.path(), to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Render a page into the shell and write it at its route.
+fn write_page(
+    out: &Path,
+    base: &str,
+    route: &str,
+    title: &str,
+    body: &str,
+) -> Result<(), Box<dyn Error>> {
+    write_route(out, route, &html::page(title, &format!("{base}{route}"), body))?;
+    Ok(())
+}
+
+fn write_route(out: &Path, route: &str, html: &str) -> Result<(), Box<dyn Error>> {
+    let path = routes::out_path(out, route);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, html)?;
     Ok(())
 }

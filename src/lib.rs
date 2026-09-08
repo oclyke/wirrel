@@ -1,10 +1,13 @@
+pub mod articles_page;
+pub mod change_page;
+pub mod changelog_page;
+pub mod changes_page;
 pub mod commits;
 pub mod frontmatter;
 pub mod gone_page;
 pub mod git;
-pub mod history_page;
 pub mod html;
 pub mod index_page;
 pub mod markdown;
 pub mod model;
-pub mod update_page;
+pub mod routes;

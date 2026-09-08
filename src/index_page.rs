@@ -1,40 +1,36 @@
-//! Generated article index, plus the latest few site changes.
+//! The front door: the way in to everything else, and the latest few changes.
+//!
+//! Deliberately thin — the exhaustive article listings own their own addresses,
+//! so nothing here duplicates them.
 
-use crate::git::RawCommit;
-use crate::history_page;
-use crate::html::{date, escape, url};
+use crate::changelog_page;
 use crate::model::Model;
+use crate::routes;
 
-pub fn body(commits: &[RawCommit], model: &Model, recent: usize) -> String {
-    let mut articles: Vec<_> = model.articles.iter().collect();
-    articles.sort_by_key(|a| a.id);
-
-    let mut out = String::from("<h1>index</h1>\n<ul>\n");
-    for a in articles {
-        let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
-        out.push_str(&format!(
-            "<li><a href=\"{}\">{}</a> <small>{}</small></li>\n",
-            url(&a.slug),
-            escape(&title),
-            date(&a.updated),
-        ));
-    }
-    out.push_str("</ul>\n");
-
-    out.push_str("<h2>recent changes</h2>\n");
-    out.push_str(&history_page::events(commits, model, recent));
-    out.push_str("<p><a href=\"/history/\">full history</a></p>\n");
-    out
+pub fn body(model: &Model, recent: usize) -> String {
+    format!(
+        "<h1>index</h1>\n\
+         <ul>\n\
+         <li><a href=\"{}\">articles by path</a></li>\n\
+         <li><a href=\"{}\">articles by id</a></li>\n\
+         <li><a href=\"{}\">changelog</a></li>\n\
+         </ul>\n\
+         <h2>recent changes</h2>\n{}",
+        routes::articles_by_path(),
+        routes::articles_by_id(),
+        routes::changelog(),
+        changelog_page::events(model, Some(recent)),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{FileChange, SigStatus};
+    use crate::git::{FileChange, RawCommit, SigStatus};
     use crate::model::build_model;
 
     #[test]
-    fn lists_articles_and_links_history() {
+    fn links_the_listings_and_shows_recent_changes() {
         let commits = [RawCommit {
             sha: "s1".into(),
             subject: "create: willow".into(),
@@ -46,10 +42,11 @@ mod tests {
         let mut model = build_model(&commits, "src");
         model.articles[0].title = Some("The Willow".into());
 
-        let html = body(&commits, &model, 5);
-        assert!(html.contains("href=\"/willow/\""));
-        assert!(html.contains("The Willow"));
+        let html = body(&model, 5);
+        assert!(html.contains("href=\"/articles/by-path/\""));
+        assert!(html.contains("href=\"/articles/by-id/\""));
+        assert!(html.contains("href=\"/changelog/\""));
         assert!(html.contains("recent changes"));
-        assert!(html.contains("href=\"/history/\""));
+        assert!(html.contains("The Willow"));
     }
 }

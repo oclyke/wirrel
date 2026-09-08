@@ -2,6 +2,7 @@
 
 use crate::frontmatter;
 use crate::model::{Id, Model};
+use crate::routes;
 use pulldown_cmark::{html, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use regex::Regex;
 use std::sync::OnceLock;
@@ -40,7 +41,7 @@ fn parser(md: &str) -> Parser<'_> {
 
 fn rewrite<'a>(dest: CowStr<'a>, model: &Model) -> CowStr<'a> {
     match parse_id_ref(&dest).and_then(|id| model.by_id(id)) {
-        Some(article) => CowStr::from(format!("/{}/", article.slug)),
+        Some(article) => CowStr::from(routes::article(&article.slug)),
         None => dest,
     }
 }
