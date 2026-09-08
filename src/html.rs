@@ -59,8 +59,11 @@ pub fn meta_header(id: Id, created: &str, updated: &str) -> String {
     )
 }
 
-/// Minimal HTML shell with a self-referential canonical tag.
-pub fn page(title: &str, canonical: &str, body: &str) -> String {
+/// Minimal HTML shell. Carries no canonical tag: every page is served at one
+/// address and links to it root-relatively, so a self-referential canonical
+/// would only restate the URL the crawler already followed. The stub pages are
+/// the exception — see `stub_page`.
+pub fn page(title: &str, body: &str) -> String {
     let title = escape(title);
     format!(
         "<!doctype html>\n\
@@ -68,7 +71,6 @@ pub fn page(title: &str, canonical: &str, body: &str) -> String {
          <head>\n\
          {head}\
          <title>{title}</title>\n\
-         <link rel=\"canonical\" href=\"{canonical}\">\n\
          </head>\n\
          <body>\n{body}</body>\n\
          </html>\n",
@@ -96,7 +98,9 @@ pub fn dead_end_page(title: &str, body: &str) -> String {
 
 /// A page whose only job is to name another address: canonical there, a refresh
 /// for browsers, and a visible link for everything else. Lets the id permalink
-/// resolve on a host that can't be told about redirects.
+/// resolve on a host that can't be told about redirects. This canonical points
+/// at the article rather than at itself, so the permalink never competes with
+/// the article it stands in for — the one canonical tag the site still needs.
 pub fn stub_page(title: &str, target: &str) -> String {
     let title = escape(title);
     format!(
@@ -121,7 +125,7 @@ mod tests {
     #[test]
     fn every_shell_links_the_stylesheet() {
         let link = "<link rel=\"stylesheet\" href=\"/assets/style.css\">";
-        assert!(page("t", "/c/", "b").contains(link));
+        assert!(page("t", "b").contains(link));
         assert!(dead_end_page("t", "b").contains(link));
         assert!(stub_page("t", "/x/").contains(link));
     }

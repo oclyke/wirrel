@@ -98,10 +98,15 @@ Global flags: `--repo <path>` (or `WIRREL_REPO`, default `.`), `--articles
 <dir>` (default `./articles`), `--assets <dir>` (default `./assets`), and
 `--no-verify-signatures`.
 
-Every URL wirrel emits is root-relative — links, the canonical tag, the redirect
-map. The tool never needs to know the origin it will be served from, so the site
-builds the same whatever host answers for it, and a preview deploy is a working
-copy rather than one pointing at production.
+Every URL wirrel emits is root-relative — links and the redirect map alike. The
+tool never needs to know the origin it will be served from, so the site builds
+the same whatever host answers for it, and a preview deploy is a working copy
+rather than one pointing at production.
+
+Pages carry no canonical tag. Each is served at a single address and links to it
+root-relatively, so a self-referential canonical would only restate the URL the
+crawler already followed. The id permalink stubs are the exception: theirs names
+the article, so a permalink never competes with the page it stands in for.
 
 ## Retired slugs
 

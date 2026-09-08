@@ -278,7 +278,7 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
             .unwrap_or_default();
 
         let body = format!("{header}{lead}{rendered}");
-        write_route(out, &route, &html::page(&title, &route, &body))?;
+        write_route(out, &route, &html::page(&title, &body))?;
 
         // The id is the permanent handle; the stub makes it resolve even where
         // the redirect map can't be installed.
@@ -400,7 +400,7 @@ fn write_page(
     title: &str,
     body: &str,
 ) -> Result<(), Box<dyn Error>> {
-    write_route(out, route, &html::page(title, route, body))?;
+    write_route(out, route, &html::page(title, body))?;
     Ok(())
 }
 
