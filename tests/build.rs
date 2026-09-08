@@ -23,6 +23,8 @@ fn init(repo: &Path) {
 
 fn wirrel(repo: &Path, args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_wirrel"))
+        .env_remove("WIRREL_ARTICLES")
+        .env_remove("WIRREL_ASSETS")
         .arg("--repo")
         .arg(repo)
         .args(["--articles", "src", "--no-verify-signatures"])
@@ -204,8 +206,11 @@ fn default_layout_needs_no_flags() {
     fs::write(repo.join("assets/style.css"), "body { color: rebeccapurple }\n").unwrap();
     commit(repo, "create: willow");
 
+    // This test is about the defaults, so the ambient env must not reach it.
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_wirrel"))
+            .env_remove("WIRREL_ARTICLES")
+            .env_remove("WIRREL_ASSETS")
             .arg("--repo")
             .arg(repo)
             .arg("--no-verify-signatures")

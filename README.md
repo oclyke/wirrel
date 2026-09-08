@@ -94,9 +94,14 @@ Unrecognized keys are ignored.
 - `wirrel redirects` — print the id permalink map as JSON on stdout, for a
   separate deploy tool to consume.
 
-Global flags: `--repo <path>` (or `WIRREL_REPO`, default `.`), `--articles
-<dir>` (default `./articles`), `--assets <dir>` (default `./assets`), and
+Global flags: `--repo <path>` (default `.`), `--articles <dir>` (default
+`./articles`), `--assets <dir>` (default `./assets`), and
 `--no-verify-signatures`.
+
+The three path flags each read an environment variable when the flag is absent —
+`WIRREL_REPO`, `WIRREL_ARTICLES`, `WIRREL_ASSETS` — so a repo whose layout
+differs from the defaults can export its layout once instead of repeating flags
+on every command. An explicit flag still wins over the variable.
 
 Every URL wirrel emits is root-relative — links and the redirect map alike. The
 tool never needs to know the origin it will be served from, so the site builds

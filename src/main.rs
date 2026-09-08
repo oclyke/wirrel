@@ -24,12 +24,12 @@ struct Cli {
     repo: PathBuf,
 
     /// Directory holding articles, relative to the repo root.
-    #[arg(long, default_value = "./articles", global = true)]
+    #[arg(long, env = "WIRREL_ARTICLES", default_value = "./articles", global = true)]
     articles: String,
 
     /// Directory holding site assets, relative to the repo root. Its contents
     /// are copied verbatim; where they land is the address scheme's business.
-    #[arg(long, default_value = "./assets", global = true)]
+    #[arg(long, env = "WIRREL_ASSETS", default_value = "./assets", global = true)]
     assets: String,
 
     /// Skip commit signature checks.
