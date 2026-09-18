@@ -1,7 +1,11 @@
 # wirrel
 
-Tool for compiling the [gnostinomicon](https://gnostinomicon.oclyke.dev) — a
+Tool for compiling the [gnostinomicon](https://notes.oclyke.dev) — a
 body of notes managed as a git history of conventional commits.
+
+I designed this tool to solve a big problem for myself; the fear of publishing in-progress work.
+
+Now I can write in the moment, see how my understanding changes over time, link articles together, and never worry about organization.
 
 Each `create:` commit assigns an article a stable numeric id (its create-order);
 `update:` and `move:` commits evolve it. An article is exactly one markdown file,
