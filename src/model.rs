@@ -97,6 +97,7 @@ pub enum Violation {
     MetaTouchesArticle { sha: String, path: String },
     SlugCollision { slug: String, ids: (Id, Id) },
     NonMarkdownInRoot { path: String },
+    ReservedAssetName { path: String },
     DanglingIdLink { path: String, id: Id },
     MissingTitle { path: String },
 }
@@ -113,9 +114,9 @@ impl Violation {
     pub fn severity(&self) -> Severity {
         match self {
             // These don't corrupt the output; titles fall back to the slug.
-            Violation::MissingTitle { .. } | Violation::NonMarkdownInRoot { .. } => {
-                Severity::Warning
-            }
+            Violation::MissingTitle { .. }
+            | Violation::NonMarkdownInRoot { .. }
+            | Violation::ReservedAssetName { .. } => Severity::Warning,
             _ => Severity::Error,
         }
     }
@@ -155,6 +156,9 @@ impl Violation {
             Violation::NonMarkdownInRoot { path } => {
                 format!("{path}: non-markdown file under the article root")
             }
+            Violation::ReservedAssetName { path } => {
+                format!("{path}: reserved for wirrel's base stylesheet; the build overwrites it")
+            }
             Violation::DanglingIdLink { path, id } => {
                 format!("{path}: link references nonexistent id {id}")
             }
@@ -192,6 +196,17 @@ pub fn check_tracked_files(root: &str, assets: &str, files: &[String]) -> Vec<Vi
         .filter(|f| f.starts_with(&prefix) && !f.ends_with(".md"))
         .filter(|f| assets.is_empty() || !f.starts_with(&assets))
         .map(|f| Violation::NonMarkdownInRoot { path: f.clone() })
+        .collect()
+}
+
+/// Lint the assets directory: wirrel writes its own stylesheet there under a
+/// fixed name on every build, so a repo file by that name is silently lost.
+pub fn check_assets(assets: &str, files: &[String]) -> Vec<Violation> {
+    let reserved = format!("{}{}", root_prefix(assets), crate::routes::BASE_STYLESHEET_FILE);
+    files
+        .iter()
+        .filter(|f| **f == reserved)
+        .map(|f| Violation::ReservedAssetName { path: f.clone() })
         .collect()
 }
 
@@ -742,6 +757,14 @@ mod tests {
         // Somewhere else entirely, and the exemption follows it.
         let files = vec!["static/logo.png".to_string()];
         assert!(check_tracked_files(".", "./static", &files).is_empty());
+    }
+
+    #[test]
+    fn a_repo_asset_named_like_the_base_stylesheet_is_flagged() {
+        let files = vec!["assets/style.css".to_string(), "assets/wirrel.css".to_string()];
+        let v = check_assets("./assets", &files);
+        assert!(matches!(v.as_slice(), [Violation::ReservedAssetName { path }] if path == "assets/wirrel.css"));
+        assert!(check_assets("./static", &files).is_empty());
     }
 
     #[test]

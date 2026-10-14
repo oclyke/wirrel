@@ -3,19 +3,34 @@
 use crate::model::Id;
 use crate::routes;
 
-/// wirrel's default stylesheet, written to the assets directory when the repo
+/// The rules the generated HTML depends on, written to the assets directory on
+/// every build.
+pub const BASE_STYLESHEET: &str = include_str!("base.css");
+
+/// wirrel's default `style.css`, written to the assets directory when the repo
 /// supplies none of its own.
 pub const DEFAULT_STYLESHEET: &str = include_str!("default.css");
 
-/// The head every shell shares, stylesheet link included — that link is why a
-/// page never has to know how deep it sits.
+const SCRIPT: &str = include_str!("copy.js");
+
+/// The head every shell shares, stylesheet links included — those links are
+/// why a page never has to know how deep it sits. The base sheet comes first so
+/// the site's own overrides it.
 fn head_common() -> String {
     format!(
         "<meta charset=\"utf-8\">\n\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+         <link rel=\"stylesheet\" href=\"{}\">\n\
          <link rel=\"stylesheet\" href=\"{}\">\n",
+        routes::base_stylesheet(),
         routes::stylesheet()
     )
+}
+
+/// The script every shell ends its body with. Last, so it never holds up
+/// rendering, and inline, so it costs no extra request.
+fn tail() -> String {
+    format!("<script>\n{SCRIPT}</script>\n")
 }
 
 pub fn escape(s: &str) -> String {
@@ -72,9 +87,10 @@ pub fn page(title: &str, body: &str) -> String {
          {head}\
          <title>{title}</title>\n\
          </head>\n\
-         <body>\n{body}</body>\n\
+         <body>\n{body}{tail}</body>\n\
          </html>\n",
-        head = head_common()
+        head = head_common(),
+        tail = tail()
     )
 }
 
@@ -90,9 +106,10 @@ pub fn dead_end_page(title: &str, body: &str) -> String {
          <meta name=\"robots\" content=\"noindex\">\n\
          <title>{title}</title>\n\
          </head>\n\
-         <body>\n{body}</body>\n\
+         <body>\n{body}{tail}</body>\n\
          </html>\n",
-        head = head_common()
+        head = head_common(),
+        tail = tail()
     )
 }
 
@@ -112,9 +129,10 @@ pub fn stub_page(title: &str, target: &str) -> String {
          <title>{title}</title>\n\
          <link rel=\"canonical\" href=\"{target}\">\n\
          </head>\n\
-         <body>\n<p><a href=\"{target}\">{target}</a></p>\n</body>\n\
+         <body>\n<p><a href=\"{target}\">{target}</a></p>\n{tail}</body>\n\
          </html>\n",
-        head = head_common()
+        head = head_common(),
+        tail = tail()
     )
 }
 
@@ -123,11 +141,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_shell_links_the_stylesheet() {
-        let link = "<link rel=\"stylesheet\" href=\"/assets/style.css\">";
-        assert!(page("t", "b").contains(link));
-        assert!(dead_end_page("t", "b").contains(link));
-        assert!(stub_page("t", "/x/").contains(link));
+    fn every_shell_links_base_then_site_stylesheet() {
+        let links = "<link rel=\"stylesheet\" href=\"/assets/wirrel.css\">\n\
+                     <link rel=\"stylesheet\" href=\"/assets/style.css\">";
+        assert!(page("t", "b").contains(links));
+        assert!(dead_end_page("t", "b").contains(links));
+        assert!(stub_page("t", "/x/").contains(links));
+    }
+
+    #[test]
+    fn every_shell_ends_with_the_script() {
+        for html in [page("t", "b"), dead_end_page("t", "b"), stub_page("t", "/x/")] {
+            assert!(html.ends_with("</script>\n</body>\n</html>\n"), "{html}");
+        }
     }
 
     #[test]

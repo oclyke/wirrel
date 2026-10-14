@@ -116,6 +116,7 @@ fn collect_violations(cli: &Cli, commits: &[git::RawCommit], model: &Model) -> V
     }
     if let Ok(files) = git::tracked_files(&cli.repo) {
         violations.extend(model::check_tracked_files(&cli.articles, &cli.assets, &files));
+        violations.extend(model::check_assets(&cli.assets, &files));
     }
     violations
 }
@@ -476,13 +477,15 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Site assets: whatever the assets directory holds, verbatim. wirrel supplies
-/// its own stylesheet only when the repo doesn't, so the diff colouring works
-/// out of the box without ever overwriting a stylesheet the author added.
+/// Site assets: whatever the assets directory holds, verbatim, plus wirrel's
+/// base stylesheet, rewritten every build so it always matches the HTML. A
+/// `style.css` is supplied only when the repo has none, so the author's is
+/// never overwritten.
 fn write_assets(src: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
     let dir = out.join(routes::ASSETS_DIR);
     fs::create_dir_all(&dir)?;
     copy_tree(src, &dir)?;
+    fs::write(dir.join(routes::BASE_STYLESHEET_FILE), html::BASE_STYLESHEET)?;
 
     let stylesheet = dir.join("style.css");
     if !stylesheet.exists() {

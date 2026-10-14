@@ -13,6 +13,16 @@ use std::path::{Path, PathBuf};
 /// same way `--articles` never shows up in an article's URL.
 pub const ASSETS_DIR: &str = "assets";
 
+/// The file name of wirrel's own stylesheet within the assets directory. The
+/// build rewrites it every time, so a repo asset by this name never reaches the
+/// site; `check` warns about one.
+pub const BASE_STYLESHEET_FILE: &str = "wirrel.css";
+
+/// wirrel's base stylesheet, linked ahead of the site's own so the site's wins.
+pub fn base_stylesheet() -> String {
+    format!("/{ASSETS_DIR}/{BASE_STYLESHEET_FILE}")
+}
+
 /// The site-wide stylesheet. Root-relative, because pages sit at every depth —
 /// an article three levels down needs the same href as the index.
 pub fn stylesheet() -> String {

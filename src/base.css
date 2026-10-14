@@ -1,0 +1,72 @@
+/* wirrel's base stylesheet: the rules the generated HTML depends on.
+ *
+ * Written to `assets/wirrel.css` on every build and linked from every page
+ * ahead of the site's own `style.css`, so a custom stylesheet overrides any of
+ * this by cascade without having to carry it. `.diff` tells an addition from a
+ * deletion on commit pages; `.copyable` lays the copy button out beside a
+ * flagged code block.
+ */
+
+.diff {
+  background: #f6f8fa;
+  padding: 1em;
+  overflow: auto;
+}
+.diff .add {
+  color: #116329;
+}
+.diff .del {
+  color: #a40e26;
+}
+.diff .hunk {
+  color: #795da3;
+}
+.diff .file {
+  color: #57606a;
+  font-weight: bold;
+}
+
+/* A flex row: the pre takes the width and scrolls, the button keeps its own
+ * column at the far right, so the two never overlap. The row carries the
+ * block's margin, since the pre's would not collapse out of a flex container.
+ * The icons are masks over the text colour, so they follow any palette; point
+ * `mask-image` at another SVG to swap one. */
+.copyable {
+  display: flex;
+  align-items: flex-start;
+  margin: 1em 0;
+}
+.copyable pre {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+.copyable button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0.5em;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.copyable:hover button,
+.copyable button:focus-visible {
+  opacity: 1;
+}
+.copyable button::before {
+  content: "";
+  width: 1em;
+  height: 1em;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.copyable button[data-state="copied"]::before {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+}
+.copyable button[data-state="failed"]::before {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E");
+}

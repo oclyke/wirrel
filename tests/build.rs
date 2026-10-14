@@ -241,11 +241,17 @@ fn assets_are_copied_and_the_stylesheet_is_linked() {
     commit(repo, "create: willow");
 
     let out = build(repo);
-    // Root-relative, so it resolves from an article nested at any depth.
+    // Root-relative, so it resolves from an article nested at any depth. The
+    // base sheet comes first so the site's own overrides it.
     let article = fs::read_to_string(out.join("article/willow/index.html")).unwrap();
-    assert!(article.contains("<link rel=\"stylesheet\" href=\"/assets/style.css\">"));
-    // Absent a stylesheet of its own, the repo gets wirrel's, diff rules and all.
-    assert!(fs::read_to_string(out.join("assets/style.css")).unwrap().contains(".diff"));
+    assert!(article.contains(
+        "<link rel=\"stylesheet\" href=\"/assets/wirrel.css\">\n\
+         <link rel=\"stylesheet\" href=\"/assets/style.css\">"
+    ));
+    // The rules the pages depend on ride in wirrel's own sheet; absent a
+    // stylesheet of its own, the repo also gets a default `style.css`.
+    assert!(fs::read_to_string(out.join("assets/wirrel.css")).unwrap().contains(".diff"));
+    assert!(out.join("assets/style.css").exists());
 
     // Once the repo supplies assets they are copied verbatim, and win.
     fs::create_dir_all(repo.join("assets/sub")).unwrap();
@@ -258,6 +264,8 @@ fn assets_are_copied_and_the_stylesheet_is_linked() {
         fs::read_to_string(out.join("assets/style.css")).unwrap(),
         "body { color: rebeccapurple }\n"
     );
+    // The base sheet is still written: the repo's sheet layers on it, never replaces it.
+    assert!(fs::read_to_string(out.join("assets/wirrel.css")).unwrap().contains(".copyable"));
     assert!(out.join("assets/sub/note.txt").is_file());
 
     // Assets are not articles, so they draw no non-markdown complaint.

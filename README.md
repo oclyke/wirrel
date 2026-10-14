@@ -28,7 +28,7 @@ saying so, without forwarding. Articles nest — `parent/index.md` is
 | `/changelog/` | every create, update and move |
 | `/changes/by-id/<n>/` | one article's history |
 | `/changes/by-sha/<sha>/` | one commit: its description and diff |
-| `/assets/…` | site assets, `style.css` among them |
+| `/assets/…` | site assets, `wirrel.css` and `style.css` among them |
 | `/404.html` | everything else |
 
 A free-form slug appears in exactly one place — the tail of `/article/` — and
@@ -62,9 +62,13 @@ The default layout keeps assets out of the article root entirely. Point the two
 at overlapping directories and the assets are still exempt from the non-markdown
 check — that check is about stray files among the articles.
 
-With no `assets/style.css` of its own, the repo gets wirrel's, which carries the
-`.diff` rules that colorize commit pages. Adding one replaces that file entirely,
-so carry those rules over to keep diffs readable.
+Every page links two stylesheets there, in order: `wirrel.css`, then the site's
+`style.css`. The first is wirrel's own, written on every build. It carries only
+the rules the generated HTML depends on — the `.diff` colors on commit pages and
+the copy button's placement on `.copyable` code blocks — and the site's sheet,
+loading after it, overrides any of them by cascade. A repo with no `style.css`
+gets a small default. `wirrel.css` is reserved: a repo asset by that name is
+overwritten on build, and `wirrel check` warns about one.
 
 ## Frontmatter
 
@@ -81,6 +85,34 @@ title: Choosing a Direction
 title supplants it: the page leads with an `<h1>` built from the frontmatter.
 Unrecognized keys are ignored.
 
+## Code blocks
+
+Add `copy` to a fence's info string and the block gets a copy button:
+
+````markdown
+```sh copy
+cargo install wirrel
+```
+````
+
+The flag is stripped before rendering, so the language stays first and GitHub
+still highlights the fence. The button comes from a small script inlined at the
+end of every page. It only appears where the browser exposes a clipboard —
+secure origins: https, `localhost`, `127.0.0.1`, `[::1]` — and logs a console
+warning on a page that has flagged blocks but no clipboard, since `[::]` or a
+LAN address silently fails that test. The copied text drops the fence's
+trailing newline so a pasted command doesn't run on its own.
+
+The block renders as `<div class="copyable"><pre>…</pre></div>`, and the script
+appends a `<button>` to the div once it has a clipboard — so a built page on
+disk has no button in it. `wirrel.css` lays the row out with flexbox — the code scrolls, the button keeps
+the far right — and draws the icon as a CSS mask over the text colour, with
+`data-state="copied"` and `"failed"` swapping it briefly after a click. A custom
+stylesheet themes the row as its code tray (`.copyable` for the surface,
+`.copyable pre` to drop the pre's own) and may replace the icon by pointing
+`.copyable button::before { mask-image: url(/assets/your.svg) }` at an asset of
+its own.
+
 ## Commands
 
 - `wirrel index` — list articles (id, slug, title).
@@ -88,8 +120,9 @@ Unrecognized keys are ignored.
   collisions, commits doing only their own kind of work (a `create:` adds
   exactly one article and changes nothing; an `update:` adds none; a `move:`
   touches one article; a `meta:` changes no article), dangling `/id/N/` links,
-  missing titles (no frontmatter `title` and no level-1 heading), and
-  non-markdown files under the article root.
+  missing titles (no frontmatter `title` and no level-1 heading),
+  non-markdown files under the article root, and an `assets/wirrel.css` the
+  build would overwrite.
 - `wirrel link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
 - `wirrel build --out dist` — render the site content: article pages (each with a
   created/updated header linking its changes), the index, both article listings,
@@ -144,7 +177,10 @@ has left is not an address, and it may since have changed hands.
 - `index_page.rs`, `articles_page.rs`, `changelog_page.rs`, `changes_page.rs`,
   `change_page.rs` — the generated index, the two article listings, the
   changelog, one article's history, and the per-commit diff page.
-- `default.css` — the stylesheet used when the repo supplies none.
+- `base.css` — the rules the generated pages depend on, written to
+  `assets/wirrel.css` on every build.
+- `default.css` — the `style.css` written when the repo supplies none.
+- `copy.js` — the copy-button script inlined at the end of every page.
 - `gone_page.rs` — the dead ends: retired-slug tombstone and the 404 body.
 
 Commit convention: `<type>: <description>`, type one of create, update, move, meta.

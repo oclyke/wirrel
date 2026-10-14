@@ -1,26 +1,23 @@
-/* wirrel's default stylesheet.
+/* wirrel's default `style.css`.
  *
  * Written to `assets/style.css` only when the repo has no `assets/` directory
- * supplying its own. Add one and it replaces this file wholesale — carry the
- * `.diff` rules over if you still want colorized diffs, since those are the one
- * piece of styling wirrel's pages depend on rather than merely prefer.
+ * supplying its own. Add one and it replaces this file wholesale. The rules the
+ * pages depend on — diff colours, the copy button's layout — live in
+ * `wirrel.css`, which every build writes and every page links ahead of this
+ * file, so nothing here needs carrying over.
  */
 
-.diff {
+pre {
   background: #f6f8fa;
   padding: 1em;
   overflow: auto;
 }
-.diff .add {
-  color: #116329;
+
+/* The copyable row is the tray; the pre inside it just holds the code. */
+.copyable {
+  background: #f6f8fa;
+  padding-right: 0.5em;
 }
-.diff .del {
-  color: #a40e26;
-}
-.diff .hunk {
-  color: #795da3;
-}
-.diff .file {
-  color: #57606a;
-  font-weight: bold;
+.copyable pre {
+  background: none;
 }
