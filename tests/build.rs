@@ -289,7 +289,7 @@ fn title_comes_from_frontmatter_else_the_slug() {
 
     let willow = fs::read_to_string(out.join("article/willow/index.html")).unwrap();
     assert!(willow.contains("<title>A Willow</title>"));
-    assert!(willow.contains("<h1>A Willow</h1>"));
+    assert!(!willow.contains("<h1>"), "title injected as a heading: {willow}");
     assert!(!willow.contains("title: A Willow"), "frontmatter leaked into the body");
 
     let oak = fs::read_to_string(out.join("article/oak/index.html")).unwrap();

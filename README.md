@@ -81,12 +81,11 @@ title: Choosing a Direction
 ---
 ```
 
-`title` names the article everywhere it appears: the page's `<title>`, the
-listings, the changelog, and `wirrel link`. The article page leads with it as an
-`<h1>`, so the body shouldn't repeat it. Without a `title`, the article is named
-by its slug (its file path) and the body renders as written. Headings in the
-body are only content and are never used as the title. Unrecognized keys are
-ignored.
+`title` identifies the article: the page's `<title>`, the listings, the
+changelog, and `wirrel link`. Without one, the slug (from the file path) stands
+in. It is not content: the article body renders exactly as written, with no
+heading injected, and headings in the body are never read as the title.
+Unrecognized keys are ignored.
 
 ## Code blocks
 

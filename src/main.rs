@@ -382,14 +382,7 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         let rendered = markdown::render(&content, &model);
         let title = a.title();
         let route = routes::article(&a.slug);
-        let lead = a
-            .frontmatter
-            .title
-            .as_deref()
-            .map(|t| format!("<h1>{}</h1>\n", html::escape(t)))
-            .unwrap_or_default();
-
-        let body = format!("{header}{lead}{rendered}");
+        let body = format!("{header}{rendered}");
         write_route(out, &route, &html::page(&title, &body))?;
 
         // The id is the permanent handle; the stub makes it resolve even where
