@@ -20,8 +20,13 @@ pub struct Article {
 
     // Derived from the working-tree file; empty until `enrich_from_files` runs.
     pub frontmatter: Frontmatter,
-    /// The resolved title: the frontmatter `title`, else the first heading.
-    pub title: Option<String>,
+}
+
+impl Article {
+    /// The frontmatter `title`, else the slug.
+    pub fn title(&self) -> &str {
+        self.frontmatter.title.as_deref().unwrap_or(&self.slug)
+    }
 }
 
 /// What one commit did to one article. An `update:` touching two articles
@@ -163,7 +168,7 @@ impl Violation {
                 format!("{path}: link references nonexistent id {id}")
             }
             Violation::MissingTitle { path } => {
-                format!("{path}: no frontmatter `title` and no level-1 heading")
+                format!("{path}: no frontmatter `title`; falls back to the slug")
             }
         }
     }
@@ -214,7 +219,7 @@ pub fn check_assets(assets: &str, files: &[String]) -> Vec<Violation> {
 pub fn check_content(model: &Model, path: &str, content: &str) -> Vec<Violation> {
     let mut violations = Vec::new();
 
-    if crate::markdown::extract_title(content).is_none() {
+    if crate::frontmatter::split(content).0.title.is_none() {
         violations.push(Violation::MissingTitle { path: path.to_string() });
     }
 
@@ -340,7 +345,6 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
                         updated: c.date.clone(),
                         past_slugs: Vec::new(),
                         frontmatter: Frontmatter::default(),
-                        title: None,
                     });
                     model.changes.push(change(c, &subject, next_id, ChangeKind::Create));
                     by_path.insert(path, idx);
@@ -662,7 +666,7 @@ mod tests {
     #[test]
     fn content_check_finds_missing_title_and_dangling_link() {
         let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
-        let v = check_content(&m, "src/willow.md", "no heading [x](id:99)");
+        let v = check_content(&m, "src/willow.md", "# heading\n[x](id:99)");
         assert!(v.iter().any(|x| matches!(x, Violation::MissingTitle { .. })));
         assert!(v.iter().any(|x| matches!(x, Violation::DanglingIdLink { id: 99, .. })));
     }

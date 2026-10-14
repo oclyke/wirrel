@@ -127,14 +127,13 @@ fn enrich_from_files(repo: &Path, model: &mut Model) {
     for a in &mut model.articles {
         if let Ok(content) = fs::read_to_string(repo.join(&a.path)) {
             a.frontmatter = frontmatter::split(&content).0;
-            a.title = markdown::extract_title(&content);
         }
     }
 }
 
 fn cmd_index(cli: &Cli) -> Result<(), Box<dyn Error>> {
     for a in &load_model(cli)?.articles {
-        println!("{:>3}  {:<34}  {}", a.id, a.slug, a.title.as_deref().unwrap_or(""));
+        println!("{:>3}  {:<34}  {}", a.id, a.slug, a.title());
     }
     Ok(())
 }
@@ -179,7 +178,7 @@ fn cmd_link(cli: &Cli, query: Option<&str>) -> Result<(), Box<dyn Error>> {
 /// The authoring form to paste into source: `build` hydrates `/id/N/` to the
 /// slug, and it also resolves via the 301 redirect when hydration doesn't run.
 fn link(a: &Article) -> String {
-    let text = a.title.clone().unwrap_or_else(|| a.slug.clone());
+    let text = a.title();
     format!("[{}]({})", text, routes::id_permalink(a.id))
 }
 
@@ -187,7 +186,7 @@ const PROMPT: &str = "article> ";
 
 /// The line shown in the picker, and the text the query is matched against.
 fn haystack(a: &Article) -> String {
-    match a.title.as_deref() {
+    match a.frontmatter.title.as_deref() {
         Some(t) => format!("{}  {t}", a.slug),
         None => a.slug.clone(),
     }
@@ -381,15 +380,12 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         let content = fs::read_to_string(cli.repo.join(&a.path))?;
         let header = html::meta_header(a.id, &a.created, &a.updated);
         let rendered = markdown::render(&content, &model);
-        let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
+        let title = a.title();
         let route = routes::article(&a.slug);
-        // A frontmatter title with no heading in the body has to lead the page
-        // itself, or the article renders with no visible title at all.
         let lead = a
             .frontmatter
             .title
             .as_deref()
-            .filter(|_| !markdown::has_heading(&content))
             .map(|t| format!("<h1>{}</h1>\n", html::escape(t)))
             .unwrap_or_default();
 
@@ -545,8 +541,7 @@ mod tests {
             created: "2026-01-01T00:00:00Z".into(),
             updated: "2026-01-01T00:00:00Z".into(),
             past_slugs: Vec::new(),
-            frontmatter: Frontmatter::default(),
-            title: Some(title.into()),
+            frontmatter: Frontmatter { title: Some(title.into()) },
         }
     }
 

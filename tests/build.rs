@@ -274,16 +274,15 @@ fn assets_are_copied_and_the_stylesheet_is_linked() {
 }
 
 #[test]
-fn frontmatter_title_drives_the_page() {
+fn title_comes_from_frontmatter_else_the_slug() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path();
     init(repo);
 
-    // No h1 at all: the frontmatter title supplants it.
     fs::write(repo.join("src/willow.md"), "---\ntitle: A Willow\n---\njust prose\n").unwrap();
     commit(repo, "create: willow");
-    // An h1 is present: the frontmatter title overrides it for the page title.
-    fs::write(repo.join("src/oak.md"), "---\ntitle: Real Oak\n---\n# stale oak\n").unwrap();
+    // A level-1 heading is just content; it never becomes the title.
+    fs::write(repo.join("src/oak.md"), "# Mighty Oak\nprose\n").unwrap();
     commit(repo, "create: oak");
 
     let out = build(repo);
@@ -294,7 +293,6 @@ fn frontmatter_title_drives_the_page() {
     assert!(!willow.contains("title: A Willow"), "frontmatter leaked into the body");
 
     let oak = fs::read_to_string(out.join("article/oak/index.html")).unwrap();
-    assert!(oak.contains("<title>Real Oak</title>"));
-    assert!(oak.contains("<h1>stale oak</h1>"));
-    assert_eq!(oak.matches("<h1>").count(), 1, "duplicated the heading");
+    assert!(oak.contains("<title>oak</title>"));
+    assert_eq!(oak.matches("<h1>").count(), 1, "{oak}");
 }

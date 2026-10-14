@@ -5,7 +5,7 @@ use crate::model::{Article, ChangeKind, Model};
 use crate::routes;
 
 pub fn body(model: &Model, a: &Article) -> String {
-    let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
+    let title = a.title();
     let mut out = format!(
         "<h1>changes: {}</h1>\n\
          <p><a href=\"{}\">the article</a> \

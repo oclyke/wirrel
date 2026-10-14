@@ -21,7 +21,7 @@ pub fn body(model: &Model, subject: &Subject, commit_body: &str, sha: &str, diff
 
     for c in model.changes_in(sha) {
         let Some(a) = model.by_id(c.article) else { continue };
-        let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
+        let title = a.title();
         let moved = match &c.kind {
             ChangeKind::Move { from, to } => slug_change(from, to),
             _ => String::new(),

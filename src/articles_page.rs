@@ -19,7 +19,7 @@ pub fn by_id(model: &Model) -> String {
 fn list(heading: &str, articles: &[&Article], lead: impl Fn(&Article) -> String) -> String {
     let mut out = format!("<h1>{heading}</h1>\n<ul>\n");
     for a in articles {
-        let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
+        let title = a.title();
         out.push_str(&format!(
             "<li>{}<a href=\"{}\">{}</a> <small>{}</small></li>\n",
             lead(a),

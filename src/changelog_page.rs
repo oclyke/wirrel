@@ -18,7 +18,7 @@ pub fn events(model: &Model, limit: Option<usize>) -> String {
 fn row(model: &Model, c: &Change) -> String {
     let what = match model.by_id(c.article) {
         Some(a) => {
-            let title = a.title.clone().unwrap_or_else(|| a.slug.clone());
+            let title = a.title();
             format!("<a href=\"{}\">{}</a>", routes::article(&a.slug), escape(&title))
         }
         None => escape(&c.description),

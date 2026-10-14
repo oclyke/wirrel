@@ -81,9 +81,12 @@ title: Choosing a Direction
 ---
 ```
 
-`title` overrides the first level-1 heading. With no heading in the body, the
-title supplants it: the page leads with an `<h1>` built from the frontmatter.
-Unrecognized keys are ignored.
+`title` names the article everywhere it appears: the page's `<title>`, the
+listings, the changelog, and `wirrel link`. The article page leads with it as an
+`<h1>`, so the body shouldn't repeat it. Without a `title`, the article is named
+by its slug (its file path) and the body renders as written. Headings in the
+body are only content and are never used as the title. Unrecognized keys are
+ignored.
 
 ## Code blocks
 
@@ -120,7 +123,7 @@ its own.
   collisions, commits doing only their own kind of work (a `create:` adds
   exactly one article and changes nothing; an `update:` adds none; a `move:`
   touches one article; a `meta:` changes no article), dangling `/id/N/` links,
-  missing titles (no frontmatter `title` and no level-1 heading),
+  missing titles (no frontmatter `title`; the slug stands in),
   non-markdown files under the article root, and an `assets/wirrel.css` the
   build would overwrite.
 - `wirrel link <query>` — interactive fuzzy finder; prints the `/id/N/` link.

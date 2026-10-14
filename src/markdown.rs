@@ -3,7 +3,7 @@
 use crate::frontmatter;
 use crate::model::{Id, Model};
 use crate::routes;
-use pulldown_cmark::{html, CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{html, CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 use regex::Regex;
 use std::sync::OnceLock;
 
@@ -77,39 +77,6 @@ fn rewrite<'a>(dest: CowStr<'a>, model: &Model) -> CowStr<'a> {
     }
 }
 
-/// The article's title: the frontmatter `title` if given, else the first
-/// level-1 heading's text.
-pub fn extract_title(md: &str) -> Option<String> {
-    let (fields, body) = frontmatter::split(md);
-    fields.title.or_else(|| heading_title(body))
-}
-
-/// Whether the body carries a level-1 heading of its own.
-pub fn has_heading(md: &str) -> bool {
-    heading_title(frontmatter::split(md).1).is_some()
-}
-
-/// The first level-1 heading's text.
-fn heading_title(md: &str) -> Option<String> {
-    let mut in_h1 = false;
-    let mut title = String::new();
-    for ev in Parser::new_ext(md, options()) {
-        match ev {
-            Event::Start(Tag::Heading { level: HeadingLevel::H1, .. }) => in_h1 = true,
-            Event::End(TagEnd::Heading(HeadingLevel::H1)) => {
-                let t = title.trim();
-                if !t.is_empty() {
-                    return Some(t.to_string());
-                }
-                in_h1 = false;
-            }
-            Event::Text(t) | Event::Code(t) if in_h1 => title.push_str(&t),
-            _ => {}
-        }
-    }
-    None
-}
-
 /// Every article id referenced by a link/image in the document.
 pub fn id_refs(md: &str) -> Vec<Id> {
     let mut ids = Vec::new();
@@ -142,26 +109,6 @@ mod tests {
         assert_eq!(parse_id_ref("/id/2/"), Some(2));
         assert_eq!(parse_id_ref("https://other.site/id/2"), None);
         assert_eq!(parse_id_ref("/other/"), None);
-    }
-
-    #[test]
-    fn title_is_first_h1() {
-        assert_eq!(extract_title("# hello\ntext").as_deref(), Some("hello"));
-        assert_eq!(extract_title("no heading"), None);
-    }
-
-    #[test]
-    fn frontmatter_title_wins_over_heading() {
-        let md = "---\ntitle: real title\n---\n# heading\n";
-        assert_eq!(extract_title(md).as_deref(), Some("real title"));
-        assert!(has_heading(md), "the body still carries its own heading");
-    }
-
-    #[test]
-    fn frontmatter_title_supplants_missing_heading() {
-        let md = "---\ntitle: only title\n---\njust prose\n";
-        assert_eq!(extract_title(md).as_deref(), Some("only title"));
-        assert!(!has_heading(md));
     }
 
     #[test]

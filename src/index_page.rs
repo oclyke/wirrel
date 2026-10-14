@@ -39,7 +39,7 @@ mod tests {
             changed: vec![FileChange::Added("src/willow.md".into())],
         }];
         let mut model = build_model(&commits, "src");
-        model.articles[0].title = Some("The Willow".into());
+        model.articles[0].frontmatter.title = Some("The Willow".into());
 
         let html = body(&model, 5);
         assert!(html.contains("href=\"/articles/by-path/\""));
