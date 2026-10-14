@@ -193,6 +193,40 @@ fn article_links_to_its_changes_and_on_to_each_commit() {
     assert!(!changelog.contains("href=\"/article/direction/\""));
 }
 
+/// Every page but the index itself carries a header that leads back to it.
+#[test]
+fn every_page_but_the_index_links_back_to_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    init(repo);
+    fs::write(repo.join("src/direction.md"), "# Direction\n").unwrap();
+    commit(repo, "create: direction");
+    fs::rename(repo.join("src/direction.md"), repo.join("src/choosing-direction.md")).unwrap();
+    commit(repo, "move: rename");
+
+    let out = build(repo);
+    let header = "<header><a href=\"/\">index</a>";
+
+    let sha = fs::read_dir(out.join("changes/by-sha")).unwrap().next().unwrap().unwrap();
+    let pages = [
+        out.join("article/choosing-direction/index.html"),
+        out.join("changes/by-id/1/index.html"),
+        sha.path().join("index.html"),
+        out.join("changelog/index.html"),
+        out.join("articles/by-path/index.html"),
+        out.join("articles/by-id/index.html"),
+        out.join("article/direction/index.html"),
+        out.join("404.html"),
+    ];
+    for page in pages {
+        let html = fs::read_to_string(&page).unwrap();
+        assert!(html.contains(header), "no header on {}", page.display());
+    }
+
+    let index = fs::read_to_string(out.join("index.html")).unwrap();
+    assert!(!index.contains("<header>"));
+}
+
 /// The default layout: articles and assets as siblings under the repo root,
 /// neither flag given.
 #[test]

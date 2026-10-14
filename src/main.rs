@@ -398,11 +398,10 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         )?;
     }
 
-    write_page(
+    write_route(
         out,
         &routes::index(),
-        "index",
-        &index_page::body(&model, INDEX_RECENT),
+        &html::page("index", &index_page::body(&model, INDEX_RECENT)),
     )?;
     write_page(
         out,
@@ -426,16 +425,20 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     // Dead ends. A slug an article moved away from keeps a tombstone so the
     // address stays honest without forwarding; `404.html` covers the rest.
     let retired = model::retired_slugs(&model);
+    let nav = html::nav_header();
     for slug in &retired {
         write_route(
             out,
             &routes::article(slug),
-            &html::dead_end_page("this article has moved", &gone_page::moved_body()),
+            &html::dead_end_page(
+                "this article has moved",
+                &format!("{nav}{}", gone_page::moved_body()),
+            ),
         )?;
     }
     fs::write(
         out.join("404.html"),
-        html::dead_end_page("no such article", &gone_page::missing_body()),
+        html::dead_end_page("no such article", &format!("{nav}{}", gone_page::missing_body())),
     )?;
 
     // A page per commit that touched an article, so every changelog row lands
@@ -500,14 +503,17 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Render a page into the shell and write it at its route.
+/// Render a page into the shell, with the way back to the index, and write it
+/// at its route. The index itself and the articles (which carry their own
+/// header) bypass this.
 fn write_page(
     out: &Path,
     route: &str,
     title: &str,
     body: &str,
 ) -> Result<(), Box<dyn Error>> {
-    write_route(out, route, &html::page(title, body))?;
+    let body = format!("{}{body}", html::nav_header());
+    write_route(out, route, &html::page(title, &body))?;
     Ok(())
 }
 

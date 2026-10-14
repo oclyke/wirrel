@@ -61,6 +61,11 @@ fn slug_text(slug: &str) -> String {
     }
 }
 
+/// The way back from every generated page but the index itself.
+pub fn nav_header() -> String {
+    format!("<header><a href=\"{}\">index</a></header>\n", routes::index())
+}
+
 /// Per-article metadata header: ways back to the index and to the article's own
 /// change history, plus creation and last-updated dates.
 pub fn meta_header(id: Id, created: &str, updated: &str) -> String {
@@ -162,6 +167,11 @@ mod tests {
         assert!(html.contains("url=/article/willow/"));
         assert!(html.contains("rel=\"canonical\" href=\"/article/willow/\""));
         assert!(html.contains("<a href=\"/article/willow/\">"));
+    }
+
+    #[test]
+    fn nav_header_links_index() {
+        assert_eq!(nav_header(), "<header><a href=\"/\">index</a></header>\n");
     }
 
     #[test]
