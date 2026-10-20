@@ -4,7 +4,7 @@
  * ahead of the site's own `style.css`, so a custom stylesheet overrides any of
  * this by cascade without having to carry it. `.diff` tells an addition from a
  * deletion on commit pages; `.copyable` lays the copy button out beside a
- * flagged code block.
+ * flagged code block; the `ts-` classes colour highlighted code.
  */
 
 .diff {
@@ -69,4 +69,50 @@
 }
 .copyable button[data-state="failed"]::before {
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E");
+}
+
+/* Highlighted code: each tree-sitter capture is a `ts-` class, dots turned to
+ * hyphens (`function.method` is `.ts-function-method`). The palette suits a
+ * light code background like `default.css`'s; a dark theme restates these. */
+.ts-comment {
+  color: #6e7781;
+}
+.ts-keyword,
+.ts-punctuation-special {
+  color: #cf222e;
+}
+.ts-string,
+.ts-string-special,
+.ts-character {
+  color: #0a3069;
+}
+.ts-escape {
+  color: #0a3069;
+  font-weight: bold;
+}
+.ts-number,
+.ts-boolean,
+.ts-constant,
+.ts-constant-builtin,
+.ts-attribute,
+.ts-property {
+  color: #0550ae;
+}
+.ts-function,
+.ts-function-builtin,
+.ts-function-macro,
+.ts-function-method,
+.ts-constructor {
+  color: #8250df;
+}
+.ts-type,
+.ts-type-builtin,
+.ts-module,
+.ts-label,
+.ts-variable-builtin,
+.ts-variable-parameter {
+  color: #953800;
+}
+.ts-tag {
+  color: #116329;
 }

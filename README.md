@@ -115,6 +115,56 @@ stylesheet themes the row as its code tray (`.copyable` for the surface,
 `.copyable button::before { mask-image: url(/assets/your.svg) }` at an asset of
 its own.
 
+## Syntax highlighting
+
+Fenced code is highlighted at build time with
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars loaded from
+the grammars directory (`--grammars`, default `./grammars`). Languages are
+plugins: wirrel carries the tree-sitter runtime but no grammars, so it doesn't
+grow with each one. A fence whose language no grammar covers renders plain, as
+does every fence when the directory is absent.
+
+Each grammar is a directory named for it:
+
+```text
+grammars/rust/
+  parser.dylib            # parser.so on Linux, parser.dll on Windows
+  queries/highlights.scm  # plus injections.scm and locals.scm, if it has them
+  tree-sitter.json        # optional; its injection-regex adds aliases
+```
+
+The directory name is the grammar's name: it's what a fence matches first, and
+the parser must export `tree_sitter_<name>`. To add one, from a checkout of the
+grammar's repo:
+
+```sh
+tree-sitter build -o ../site/grammars/rust/parser.dylib
+mkdir -p ../site/grammars/rust/queries
+cp queries/{highlights,injections}.scm ../site/grammars/rust/queries/
+cp tree-sitter.json ../site/grammars/rust/
+```
+
+`tree-sitter.json`'s `injection-regex` lets a grammar answer to other names —
+JavaScript's `^(js|javascript)$` covers ```` ```js ```` — and also resolves
+languages embedded in others, like the script in an HTML block. Use the queries
+from the grammar's own repo; editor collections such as nvim-treesitter's use
+predicates and capture names of their own.
+
+The parser is native code, built for one platform: one built on macOS won't
+load on a Linux CI runner. Commit the queries and `tree-sitter.json`, and build
+the parser wherever the site is built. A grammar that fails to load (missing
+parser, ABI too old or new for wirrel's tree-sitter, bad query) is warned about
+and skipped; it never fails the build. Loading a grammar runs its code, so the
+directory is as trusted as wirrel itself.
+
+Highlighted tokens are `<span class="ts-…">`, named for tree-sitter's capture
+names with dots as hyphens (`function.method` is `.ts-function-method`). The
+list is fixed in `highlight.rs`; a capture not on it takes its closest listed
+name, or no span. `wirrel.css` colours them for a light background; a custom
+stylesheet restates the `.ts-` rules to retheme.
+
+Once any grammar loads, `check` warns about fence languages none covers.
+
 ## Commands
 
 - `wirrel index` — list articles (id, slug, title).
@@ -134,10 +184,11 @@ its own.
   separate deploy tool to consume.
 
 Global flags: `--repo <path>` (default `.`), `--articles <dir>` (default
-`./articles`), and `--assets <dir>` (default `./assets`).
+`./articles`), `--assets <dir>` (default `./assets`), and `--grammars <dir>`
+(default `./grammars`).
 
-The three path flags each read an environment variable when the flag is absent —
-`WIRREL_REPO`, `WIRREL_ARTICLES`, `WIRREL_ASSETS` — so a repo whose layout
+The path flags each read an environment variable when the flag is absent —
+`WIRREL_REPO`, `WIRREL_ARTICLES`, `WIRREL_ASSETS`, `WIRREL_GRAMMARS` — so a repo whose layout
 differs from the defaults can export its layout once instead of repeating flags
 on every command. An explicit flag still wins over the variable.
 
@@ -168,13 +219,15 @@ has left is not an address, and it may since have changed hands.
 
 ## Layout
 
-- `git.rs` — the only I/O; shells out to `git`, produces `RawCommit` data.
+- `git.rs` — I/O; shells out to `git`, produces `RawCommit` data.
+- `grammars.rs` — I/O; loads tree-sitter grammars from the grammars directory.
 - `commits.rs` — commit-subject grammar (`create | update | move | meta`).
 - `routes.rs` — the address scheme; the only module holding URL literals.
 - `model.rs` — pure fold of commits into articles; validation; id permalinks
   and retired slugs.
 - `frontmatter.rs` — the leading `---` metadata block (`title`).
 - `markdown.rs` — pulldown-cmark rendering; hydrates `/id/N/` links to slug URLs.
+- `highlight.rs` — tree-sitter highlighting of code blocks with loaded grammars.
 - `html.rs` — shared page shell / escaping helpers.
 - `index_page.rs`, `articles_page.rs`, `changelog_page.rs`, `changes_page.rs`,
   `change_page.rs` — the generated index, the two article listings, the

@@ -15,6 +15,7 @@ exclude = [
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.29"
+libloading = "0.9"
 nucleo-matcher = "0.3"
 pulldown-cmark = "0.12"
 regex = "1"
@@ -22,8 +23,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tree-sitter = "0.27"
+tree-sitter-highlight = "0.27"
+tree-sitter-language = "0.1"
 
 [dev-dependencies]
 insta = { version = "1", features = ["yaml"] }
 rstest = "0.23"
 tempfile = "3"
+tree-sitter-json = "0.24.8"

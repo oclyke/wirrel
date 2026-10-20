@@ -3,6 +3,7 @@
 use crate::commits::{parse_subject, CommitKind};
 use crate::frontmatter::Frontmatter;
 use crate::git::{FileChange, RawCommit};
+use crate::highlight::Grammars;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
@@ -105,6 +106,7 @@ pub enum Violation {
     ReservedAssetName { path: String },
     DanglingIdLink { path: String, id: Id },
     MissingTitle { path: String },
+    UnknownLanguage { path: String, lang: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,7 +123,8 @@ impl Violation {
             // These don't corrupt the output; titles fall back to the slug.
             Violation::MissingTitle { .. }
             | Violation::NonMarkdownInRoot { .. }
-            | Violation::ReservedAssetName { .. } => Severity::Warning,
+            | Violation::ReservedAssetName { .. }
+            | Violation::UnknownLanguage { .. } => Severity::Warning,
             _ => Severity::Error,
         }
     }
@@ -170,6 +173,9 @@ impl Violation {
             Violation::MissingTitle { path } => {
                 format!("{path}: no frontmatter `title`; falls back to the slug")
             }
+            Violation::UnknownLanguage { path, lang } => {
+                format!("{path}: no grammar for code block language `{lang}`; it renders plain")
+            }
         }
     }
 }
@@ -215,8 +221,15 @@ pub fn check_assets(assets: &str, files: &[String]) -> Vec<Violation> {
         .collect()
 }
 
-/// Content checks for one article file: missing title and dangling id links.
-pub fn check_content(model: &Model, path: &str, content: &str) -> Vec<Violation> {
+/// Content checks for one article file: missing title, dangling id links, and
+/// code block languages no grammar covers. That last only once there are
+/// grammars at all, so a site without highlighting isn't nagged about it.
+pub fn check_content(
+    model: &Model,
+    path: &str,
+    content: &str,
+    grammars: &Grammars,
+) -> Vec<Violation> {
     let mut violations = Vec::new();
 
     if crate::frontmatter::split(content).0.title.is_none() {
@@ -230,6 +243,15 @@ pub fn check_content(model: &Model, path: &str, content: &str) -> Vec<Violation>
             .filter(|&id| id == 0 || id > max || model.by_id(id).is_none())
             .map(|id| Violation::DanglingIdLink { path: path.to_string(), id }),
     );
+
+    if !grammars.is_empty() {
+        violations.extend(
+            crate::markdown::fence_languages(content)
+                .into_iter()
+                .filter(|lang| !grammars.knows(lang))
+                .map(|lang| Violation::UnknownLanguage { path: path.to_string(), lang }),
+        );
+    }
 
     violations
 }
@@ -666,15 +688,32 @@ mod tests {
     #[test]
     fn content_check_finds_missing_title_and_dangling_link() {
         let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
-        let v = check_content(&m, "src/willow.md", "# heading\n[x](id:99)");
+        let v = check_content(&m, "src/willow.md", "# heading\n[x](id:99)", &Grammars::default());
         assert!(v.iter().any(|x| matches!(x, Violation::MissingTitle { .. })));
         assert!(v.iter().any(|x| matches!(x, Violation::DanglingIdLink { id: 99, .. })));
     }
 
     #[test]
+    fn unknown_fence_languages_warn_only_once_grammars_exist() {
+        let m = Model::default();
+        let md = "```json\n1\n```\n```yaml copy\na: 1\n```\n";
+        let unknown = |g: &Grammars| -> Vec<String> {
+            check_content(&m, "a.md", md, g)
+                .into_iter()
+                .filter_map(|v| match v {
+                    Violation::UnknownLanguage { lang, .. } => Some(lang),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(unknown(&crate::highlight::json(None)), ["yaml"]);
+        assert!(unknown(&Grammars::default()).is_empty());
+    }
+
+    #[test]
     fn render_hydrates_id_link() {
         let m = build_model(&[c("create: willow", vec![added("src/willow.md")])], "src");
-        let html = crate::markdown::render("[w](id:1)", &m);
+        let html = crate::markdown::render("[w](id:1)", &m, &Grammars::default());
         assert!(html.contains("href=\"/article/willow/\""));
     }
 

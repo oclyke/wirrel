@@ -10,9 +10,10 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 use wirrel::commits::parse_subject;
 use wirrel::model::{self, Article, Model, Severity};
 use wirrel::{
-    articles_page, change_page, changelog_page, changes_page, frontmatter, git, gone_page, html,
-    index_page, markdown, routes,
+    articles_page, change_page, changelog_page, changes_page, frontmatter, git, gone_page,
+    grammars, html, index_page, markdown, routes,
 };
+use wirrel::highlight::Grammars;
 use std::error::Error;
 use std::fs;
 use std::io::{IsTerminal, Write};
@@ -34,6 +35,11 @@ struct Cli {
     /// are copied verbatim; where they land is the address scheme's business.
     #[arg(long, env = "WIRREL_ASSETS", default_value = "./assets", global = true)]
     assets: String,
+
+    /// Directory of tree-sitter grammars, relative to the repo root. Code in a
+    /// language none of them covers renders plain.
+    #[arg(long, env = "WIRREL_GRAMMARS", default_value = "./grammars", global = true)]
+    grammars: String,
 
     #[command(subcommand)]
     command: Commands,
@@ -84,13 +90,21 @@ fn load_model(cli: &Cli) -> Result<Model, Box<dyn Error>> {
     Ok(model)
 }
 
-/// Load commits + model, erroring out if the repo doesn't pass `check`.
-fn load_valid_model(cli: &Cli) -> Result<(Vec<git::RawCommit>, Model), Box<dyn Error>> {
+fn load_grammars(cli: &Cli) -> Grammars {
+    grammars::load(&cli.repo.join(&cli.grammars))
+}
+
+/// Load commits + model, erroring out if the repo doesn't pass `check`. Code
+/// block languages are checked against `grammars`; an empty set skips that.
+fn load_valid_model(
+    cli: &Cli,
+    grammars: &Grammars,
+) -> Result<(Vec<git::RawCommit>, Model), Box<dyn Error>> {
     let commits = git::load(&cli.repo)?;
     let mut model = model::build_model(&commits, &cli.articles);
     enrich_from_files(&cli.repo, &mut model);
 
-    let violations = collect_violations(cli, &commits, &model);
+    let violations = collect_violations(cli, &commits, &model, grammars);
     let mut errors = 0;
     for v in &violations {
         match v.severity() {
@@ -107,11 +121,16 @@ fn load_valid_model(cli: &Cli) -> Result<(Vec<git::RawCommit>, Model), Box<dyn E
     Ok((commits, model))
 }
 
-fn collect_violations(cli: &Cli, commits: &[git::RawCommit], model: &Model) -> Vec<model::Violation> {
+fn collect_violations(
+    cli: &Cli,
+    commits: &[git::RawCommit],
+    model: &Model,
+    grammars: &Grammars,
+) -> Vec<model::Violation> {
     let mut violations = model::check(commits, &cli.articles);
     for a in &model.articles {
         if let Ok(content) = fs::read_to_string(cli.repo.join(&a.path)) {
-            violations.extend(model::check_content(model, &a.path, &content));
+            violations.extend(model::check_content(model, &a.path, &content, grammars));
         }
     }
     if let Ok(files) = git::tracked_files(&cli.repo) {
@@ -141,7 +160,7 @@ fn cmd_index(cli: &Cli) -> Result<(), Box<dyn Error>> {
 fn cmd_check(cli: &Cli) -> Result<(), Box<dyn Error>> {
     let commits = git::load(&cli.repo)?;
     let model = model::build_model(&commits, &cli.articles);
-    let violations = collect_violations(cli, &commits, &model);
+    let violations = collect_violations(cli, &commits, &model, &load_grammars(cli));
 
     let (errors, warnings): (Vec<_>, Vec<_>) =
         violations.iter().partition(|v| v.severity() == Severity::Error);
@@ -166,7 +185,7 @@ fn cmd_check(cli: &Cli) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_link(cli: &Cli, query: Option<&str>) -> Result<(), Box<dyn Error>> {
-    let (_, model) = load_valid_model(cli)?;
+    let (_, model) = load_valid_model(cli, &Grammars::default())?;
     if std::io::stdin().is_terminal() {
         link_interactive(&model, query)
     } else {
@@ -365,21 +384,22 @@ fn link_filtered(model: &Model, query: &str) {
 const INDEX_RECENT: usize = 5;
 
 fn cmd_redirects(cli: &Cli) -> Result<(), Box<dyn Error>> {
-    let (_, model) = load_valid_model(cli)?;
+    let (_, model) = load_valid_model(cli, &Grammars::default())?;
     let redirects = model::plan_redirects(&model);
     println!("{}", serde_json::to_string_pretty(&redirects)?);
     Ok(())
 }
 
 fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
-    let (commits, model) = load_valid_model(cli)?;
+    let grammars = load_grammars(cli);
+    let (commits, model) = load_valid_model(cli, &grammars)?;
     fs::create_dir_all(out)?;
     write_assets(&cli.repo.join(&cli.assets), out)?;
 
     for a in &model.articles {
         let content = fs::read_to_string(cli.repo.join(&a.path))?;
         let header = html::meta_header(a.id, &a.created, &a.updated);
-        let rendered = markdown::render(&content, &model);
+        let rendered = markdown::render(&content, &model, &grammars);
         let title = a.title();
         let route = routes::article(&a.slug);
         let body = format!("{header}{rendered}");

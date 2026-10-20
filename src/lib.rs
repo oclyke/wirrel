@@ -6,6 +6,8 @@ pub mod commits;
 pub mod frontmatter;
 pub mod gone_page;
 pub mod git;
+pub mod grammars;
+pub mod highlight;
 pub mod html;
 pub mod index_page;
 pub mod markdown;
