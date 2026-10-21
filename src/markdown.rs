@@ -6,6 +6,8 @@ use crate::model::{Id, Model};
 use crate::routes;
 use pulldown_cmark::{html, CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 use regex::Regex;
+use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::OnceLock;
 
 fn options() -> Options {
@@ -16,8 +18,8 @@ fn options() -> Options {
 }
 
 /// Render markdown to HTML, rewriting `id:` link/image targets to slug URLs,
-/// highlighting fenced code a grammar covers, and wrapping `copy`-flagged code
-/// blocks for the copy button.
+/// highlighting fenced code a grammar covers, wrapping `copy`-flagged code
+/// blocks for the copy button, and gathering footnotes into an endnote list.
 /// Any frontmatter block is metadata, not content, so it is not rendered.
 pub fn render(md: &str, model: &Model, grammars: &Grammars) -> String {
     let mut events = Vec::new();
@@ -67,8 +69,89 @@ pub fn render(md: &str, model: &Model, grammars: &Grammars) -> String {
     }
 
     let mut out = String::new();
-    html::push_html(&mut out, events.into_iter());
+    html::push_html(&mut out, hoist_footnotes(events).into_iter());
     out
+}
+
+/// Footnotes GitHub-style: references are numbered in order of first use, the
+/// definitions follow the body under a rule in that order, and each links back
+/// to its references. A definition nothing references is dropped.
+fn hoist_footnotes(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+    let mut body = Vec::new();
+    // Each name's number and how many times it has been referenced.
+    let mut numbers: HashMap<CowStr, (usize, usize)> = HashMap::new();
+    let mut notes: Vec<(CowStr, Vec<Event>)> = Vec::new();
+    // Definitions being read: a reference inside one belongs to it, not the body.
+    let mut open: Vec<(CowStr, Vec<Event>)> = Vec::new();
+    let mut after_reference = false;
+    for ev in events {
+        let is_reference = matches!(ev, Event::FootnoteReference(_));
+        match ev {
+            Event::Start(Tag::FootnoteDefinition(name)) => open.push((name, Vec::new())),
+            Event::End(TagEnd::FootnoteDefinition) => notes.push(open.pop().unwrap()),
+            Event::FootnoteReference(name) => {
+                let next = numbers.len() + 1;
+                let (n, uses) = numbers.entry(name.clone()).or_insert((next, 0));
+                *uses += 1;
+                // Two notes on one word read as 3,4 rather than 34.
+                let comma = if after_reference { "," } else { "" };
+                let html = format!(
+                    "<sup class=\"footnote-reference\" id=\"{}\">{comma}<a href=\"#fn-{}\">{n}</a></sup>",
+                    ref_id(&name, *uses),
+                    attr(&name)
+                );
+                let sink = open.last_mut().map_or(&mut body, |(_, inner)| inner);
+                sink.push(Event::Html(html.into()));
+            }
+            other => open.last_mut().map_or(&mut body, |(_, inner)| inner).push(other),
+        }
+        after_reference = is_reference;
+    }
+
+    notes.retain(|(name, _)| numbers.contains_key(name));
+    notes.sort_by_key(|(name, _)| numbers[name].0);
+    notes.dedup_by(|later, first| later.0 == first.0);
+    if notes.is_empty() {
+        return body;
+    }
+    body.push(Event::Html("<section class=\"footnotes\">\n<hr>\n<ol>\n".into()));
+    for (name, mut inner) in notes {
+        let (n, uses) = numbers[&name];
+        body.push(Event::Html(format!("<li id=\"fn-{}\">\n", attr(&name)).into()));
+        let mut backrefs = String::new();
+        for nth in 1..=uses {
+            let (dash, count) = if nth == 1 { ("", String::new()) } else { ("-", nth.to_string()) };
+            write!(
+                backrefs,
+                " <a href=\"#{}\" class=\"footnote-backref\" aria-label=\"Back to reference {n}{dash}{count}\">\u{21a9}\u{fe0e}{count}</a>",
+                ref_id(&name, nth)
+            )
+            .unwrap();
+        }
+        // Inside the closing paragraph, so the links sit on the note's last line.
+        let backrefs = Event::Html(backrefs.into());
+        match inner.pop() {
+            Some(end @ Event::End(TagEnd::Paragraph)) => inner.extend([backrefs, end]),
+            Some(last) => inner.extend([last, backrefs]),
+            None => inner.push(backrefs),
+        }
+        body.extend(inner);
+        body.push(Event::Html("</li>\n".into()));
+    }
+    body.push(Event::Html("</ol>\n</section>\n".into()));
+    body
+}
+
+/// A reference's id: `fnref-name`, then `fnref-name-2` and on for repeats.
+fn ref_id(name: &str, nth: usize) -> String {
+    match nth {
+        1 => format!("fnref-{}", attr(name)),
+        n => format!("fnref-{}-{n}", attr(name)),
+    }
+}
+
+fn attr(s: &str) -> String {
+    crate::html::escape(s).replace('"', "&quot;")
 }
 
 /// The fence's info string with its `copy` flag removed, if it had one. The
@@ -150,6 +233,50 @@ mod tests {
         let html = render("---\ntitle: t\n---\nprose\n", &m, &Grammars::default());
         assert!(!html.contains("title: t"), "{html}");
         assert!(html.contains("prose"));
+    }
+
+    #[test]
+    fn footnotes_are_gathered_under_a_rule_and_link_back() {
+        let (m, g) = (Model::default(), Grammars::default());
+        let html = render("a[^x] b[^y]\n\n[^y]: why\n\n[^x]: ex\n", &m, &g);
+        assert_eq!(
+            html,
+            "<p>a<sup class=\"footnote-reference\" id=\"fnref-x\"><a href=\"#fn-x\">1</a></sup> \
+             b<sup class=\"footnote-reference\" id=\"fnref-y\"><a href=\"#fn-y\">2</a></sup></p>\n\
+             <section class=\"footnotes\">\n<hr>\n<ol>\n\
+             <li id=\"fn-x\">\n<p>ex <a href=\"#fnref-x\" class=\"footnote-backref\" \
+             aria-label=\"Back to reference 1\">\u{21a9}\u{fe0e}</a></p>\n</li>\n\
+             <li id=\"fn-y\">\n<p>why <a href=\"#fnref-y\" class=\"footnote-backref\" \
+             aria-label=\"Back to reference 2\">\u{21a9}\u{fe0e}</a></p>\n</li>\n\
+             </ol>\n</section>\n"
+        );
+    }
+
+    #[test]
+    fn every_reference_to_a_footnote_gets_a_backlink() {
+        let (m, g) = (Model::default(), Grammars::default());
+        let html = render("a[^x] b[^x]\n\n[^x]: ex\n", &m, &g);
+        assert!(html.contains("id=\"fnref-x\"><a href=\"#fn-x\">1</a>"), "{html}");
+        assert!(html.contains("id=\"fnref-x-2\"><a href=\"#fn-x\">1</a>"), "{html}");
+        assert!(html.contains("href=\"#fnref-x\" class"), "{html}");
+        assert!(html.contains("href=\"#fnref-x-2\" class=\"footnote-backref\" aria-label=\"Back to reference 1-2\">\u{21a9}\u{fe0e}2</a>"), "{html}");
+    }
+
+    #[test]
+    fn adjacent_references_are_comma_separated() {
+        let (m, g) = (Model::default(), Grammars::default());
+        let html = render("a[^x][^y] b[^x]\n\n[^x]: ex\n[^y]: why\n", &m, &g);
+        assert!(html.contains("</sup><sup class=\"footnote-reference\" id=\"fnref-y\">,<a"), "{html}");
+        assert!(html.contains("id=\"fnref-x-2\"><a"), "{html}");
+    }
+
+    #[test]
+    fn stray_definitions_are_dropped() {
+        let (m, g) = (Model::default(), Grammars::default());
+        assert!(!render("prose\n\n[^x]: ex\n", &m, &g).contains("footnote"));
+        assert!(!render("prose\n", &m, &g).contains("footnote"));
+        let twice = render("a[^x]\n\n[^x]: first\n[^x]: second\n", &m, &g);
+        assert!(twice.contains("first") && !twice.contains("second"), "{twice}");
     }
 
     #[test]

@@ -115,6 +115,19 @@ stylesheet themes the row as its code tray (`.copyable` for the surface,
 `.copyable button::before { mask-image: url(/assets/your.svg) }` at an asset of
 its own.
 
+## Footnotes
+
+Footnotes use the usual syntax — `[^name]` in the text, `[^name]: …` anywhere
+in the article — and render GitHub-style: numbered in order of first mention,
+gathered under a rule at the end of the article in that order, each linking
+back to where it was mentioned. A definition nothing mentions is dropped.
+
+A reference renders as `<sup class="footnote-reference" id="fnref-name">` around
+a link to the note (two on one word are comma-separated, so they don't read as
+one number); the notes are an `<ol>` in `<section class="footnotes">`, after an
+`<hr>`, each `<li id="fn-name">` ending in a `.footnote-backref` link per
+reference. None of it needs `wirrel.css`; the look is the stylesheet's.
+
 ## Syntax highlighting
 
 Fenced code is highlighted at build time with

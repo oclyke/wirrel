@@ -21,3 +21,12 @@ pre {
 .copyable pre {
   background: none;
 }
+
+/* Footnotes sit under the rule the renderer puts before them. */
+.footnotes {
+  font-size: 0.9em;
+}
+.footnote-reference a,
+.footnote-backref {
+  text-decoration: none;
+}
