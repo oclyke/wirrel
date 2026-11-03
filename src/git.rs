@@ -11,6 +11,15 @@ pub enum FileChange {
     Renamed { from: String, to: String },
 }
 
+/// Lines a commit added to and deleted from one file, keyed by the path the
+/// file has after the commit. Binary files count as zero.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileStat {
+    pub path: String,
+    pub added: u32,
+    pub deleted: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawCommit {
     pub sha: String,
@@ -18,6 +27,7 @@ pub struct RawCommit {
     pub body: String,
     pub date: String,
     pub changed: Vec<FileChange>,
+    pub stats: Vec<FileStat>,
 }
 
 /// Load commit history oldest -> newest.
@@ -42,7 +52,8 @@ pub fn load(repo: &Path) -> io::Result<Vec<RawCommit>> {
         let body = f.next().unwrap_or("").trim_end().to_string();
 
         let changed = load_changes(repo, &sha)?;
-        commits.push(RawCommit { sha, subject, body, date, changed });
+        let stats = load_stats(repo, &sha)?;
+        commits.push(RawCommit { sha, subject, body, date, changed, stats });
     }
     Ok(commits)
 }
@@ -85,6 +96,41 @@ fn load_changes(repo: &Path, sha: &str) -> io::Result<Vec<FileChange>> {
         }
     }
     Ok(changes)
+}
+
+fn load_stats(repo: &Path, sha: &str) -> io::Result<Vec<FileStat>> {
+    let out = run(repo, &[
+        "diff-tree",
+        "--root",
+        "--no-commit-id",
+        "-r",
+        "-M",
+        "-z",
+        "--numstat",
+        sha,
+    ])?;
+
+    // -z fields: `added\tdeleted\tpath`, or `added\tdeleted\t\0from\0to` for a
+    // rename. Binary files report `-` for both counts.
+    let mut parts = out.split('\0');
+    let mut stats = Vec::new();
+    while let Some(record) = parts.next() {
+        if record.is_empty() {
+            continue;
+        }
+        let mut f = record.splitn(3, '\t');
+        let added = f.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+        let deleted = f.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+        let path = match f.next() {
+            Some("") | None => {
+                parts.next();
+                parts.next().unwrap_or("")
+            }
+            Some(p) => p,
+        };
+        stats.push(FileStat { path: path.to_string(), added, deleted });
+    }
+    Ok(stats)
 }
 
 /// Paths tracked by git, repo-relative.

@@ -20,9 +20,8 @@ saying so, without forwarding. Articles nest — `parent/index.md` is
 
 | address | what |
 | --- | --- |
-| `/` | the index: recent changes, and the way in to the rest |
+| `/` | the index: recent changes, the article tree, and the way in to the rest |
 | `/article/<slug>/` | an article, or a tombstone at a slug one moved away from |
-| `/articles/by-path/` | every article, slug order |
 | `/articles/by-id/` | every article, id order |
 | `/articles/by-id/<n>/` | the id permalink; a stub pointing at the article |
 | `/changelog/` | every create, update and move |
@@ -190,20 +189,22 @@ Once any grammar loads, `check` warns about fence languages none covers.
   build would overwrite.
 - `wirrel link <query>` — interactive fuzzy finder; prints the `/id/N/` link.
 - `wirrel build --out dist` — render the site content: article pages (each with a
-  created/updated header linking its changes), the index, both article listings,
-  the changelog, a change list and id-permalink stub per article, a diff page per
+  created/updated header linking its changes), the index (with the article
+  tree), the id listing, the changelog, a change list and id-permalink stub per article, a diff page per
   commit, the assets, a tombstone at every retired slug, and a `404.html`.
 - `wirrel redirects` — print the id permalink map as JSON on stdout, for a
   separate deploy tool to consume.
 
 Global flags: `--repo <path>` (default `.`), `--articles <dir>` (default
-`./articles`), `--assets <dir>` (default `./assets`), and `--grammars <dir>`
-(default `./grammars`).
+`./articles`), `--assets <dir>` (default `./assets`), `--grammars <dir>`
+(default `./grammars`), and `--favicon <url>` (none by default; when given,
+every page links it as its icon, so it can live on a CDN).
 
-The path flags each read an environment variable when the flag is absent —
-`WIRREL_REPO`, `WIRREL_ARTICLES`, `WIRREL_ASSETS`, `WIRREL_GRAMMARS` — so a repo whose layout
-differs from the defaults can export its layout once instead of repeating flags
-on every command. An explicit flag still wins over the variable.
+Each flag reads an environment variable when it is absent — `WIRREL_REPO`,
+`WIRREL_ARTICLES`, `WIRREL_ASSETS`, `WIRREL_GRAMMARS`, `WIRREL_FAVICON` — so a
+repo whose layout differs from the defaults can export its layout once instead
+of repeating flags on every command. An explicit flag still wins over the
+variable.
 
 Every URL wirrel emits is root-relative — links and the redirect map alike. The
 tool never needs to know the origin it will be served from, so the site builds
@@ -243,7 +244,7 @@ has left is not an address, and it may since have changed hands.
 - `highlight.rs` — tree-sitter highlighting of code blocks with loaded grammars.
 - `html.rs` — shared page shell / escaping helpers.
 - `index_page.rs`, `articles_page.rs`, `changelog_page.rs`, `changes_page.rs`,
-  `change_page.rs` — the generated index, the two article listings, the
+  `change_page.rs` — the generated index, the article tree and id listing, the
   changelog, one article's history, and the per-commit diff page.
 - `base.css` — the rules the generated pages depend on, written to
   `assets/wirrel.css` on every build.

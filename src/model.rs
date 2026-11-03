@@ -39,6 +39,9 @@ pub struct Change {
     pub date: String,
     pub description: String,
     pub kind: ChangeKind,
+    /// Lines the commit added to and deleted from this article's file.
+    pub added: u32,
+    pub deleted: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -64,6 +67,8 @@ pub struct Model {
     pub articles: Vec<Article>,
     /// Every article-affecting commit, oldest first.
     pub changes: Vec<Change>,
+    /// The article root as a path prefix (`src/`, or empty for the repo root).
+    pub root: String,
 }
 
 impl Model {
@@ -293,7 +298,7 @@ pub fn retired_slugs(model: &Model) -> Vec<String> {
 }
 
 fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
-    let mut model = Model::default();
+    let mut model = Model { root: root_prefix(root), ..Model::default() };
     let mut violations = Vec::new();
     let mut by_path: HashMap<String, usize> = HashMap::new();
     let mut next_id: Id = 1;
@@ -368,7 +373,7 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
                         past_slugs: Vec::new(),
                         frontmatter: Frontmatter::default(),
                     });
-                    model.changes.push(change(c, &subject, next_id, ChangeKind::Create));
+                    model.changes.push(change(c, &subject, next_id, &path, ChangeKind::Create));
                     by_path.insert(path, idx);
                     next_id += 1;
                 }
@@ -387,7 +392,7 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
                         Some(&idx) => {
                             model.articles[idx].updated = c.date.clone();
                             let id = model.articles[idx].id;
-                            model.changes.push(change(c, &subject, id, ChangeKind::Update));
+                            model.changes.push(change(c, &subject, id, &p, ChangeKind::Update));
                         }
                         None => violations.push(Violation::UpdateBeforeCreate {
                             sha: c.sha.clone(),
@@ -425,7 +430,7 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
                         old
                     };
                     let kind = ChangeKind::Move { from: old_slug, to: new_slug.clone() };
-                    model.changes.push(change(c, &subject, model.articles[idx].id, kind));
+                    model.changes.push(change(c, &subject, model.articles[idx].id, to, kind));
                     by_path.insert(to.clone(), idx);
                     if !touched.contains(&idx) {
                         touched.push(idx);
@@ -449,13 +454,22 @@ fn fold(commits: &[RawCommit], root: &str) -> (Model, Vec<Violation>) {
     (model, violations)
 }
 
-fn change(c: &RawCommit, subject: &crate::commits::Subject, article: Id, kind: ChangeKind) -> Change {
+fn change(
+    c: &RawCommit,
+    subject: &crate::commits::Subject,
+    article: Id,
+    path: &str,
+    kind: ChangeKind,
+) -> Change {
+    let stat = c.stats.iter().find(|s| s.path == path);
     Change {
         article,
         sha: c.sha.clone(),
         date: c.date.clone(),
         description: subject.description.clone(),
         kind,
+        added: stat.map_or(0, |s| s.added),
+        deleted: stat.map_or(0, |s| s.deleted),
     }
 }
 
@@ -540,6 +554,7 @@ mod tests {
             body: String::new(),
             date: "2026-01-01T00:00:00Z".into(),
             changed,
+            stats: Vec::new(),
         }
     }
 

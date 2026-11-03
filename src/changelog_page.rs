@@ -7,7 +7,7 @@ use crate::routes;
 /// The `<ul>` of change events, newest first. Shared by the changelog and the
 /// index's "recent changes" section, which passes a limit.
 pub fn events(model: &Model, limit: Option<usize>) -> String {
-    let mut out = String::from("<ul>\n");
+    let mut out = String::from("<ul class=\"stream\">\n");
     for c in model.changes.iter().rev().take(limit.unwrap_or(usize::MAX)) {
         out.push_str(&format!("<li>{}</li>\n", row(model, c)));
     }
@@ -28,13 +28,27 @@ fn row(model: &Model, c: &Change) -> String {
         _ => String::new(),
     };
     format!(
-        "{} <b>{}</b> {}{} <a href=\"{}\">commit</a>",
+        "<span class=\"date\">{}</span> <b class=\"kind\">{}</b> {}{} {} \
+         <a class=\"sha\" href=\"{}\">{}</a>",
         date(&c.date),
         c.kind.label(),
         what,
         moved,
+        diffstat(c.added, c.deleted),
         routes::change(&c.sha),
+        short(&c.sha),
     )
+}
+
+/// `+added −deleted`, each coloured by `.add` / `.del` like the diff pages.
+fn diffstat(added: u32, deleted: u32) -> String {
+    format!(
+        "<span class=\"stat\"><span class=\"add\">+{added}</span> <span class=\"del\">−{deleted}</span></span>"
+    )
+}
+
+fn short(sha: &str) -> &str {
+    &sha[..sha.len().min(7)]
 }
 
 pub fn body(model: &Model) -> String {
@@ -44,7 +58,7 @@ pub fn body(model: &Model) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{FileChange, RawCommit};
+    use crate::git::{FileChange, FileStat, RawCommit};
     use crate::model::build_model;
 
     fn commit(sha: &str, subject: &str, date: &str, changed: Vec<FileChange>) -> RawCommit {
@@ -54,20 +68,24 @@ mod tests {
             body: String::new(),
             date: date.into(),
             changed,
+            stats: Vec::new(),
         }
     }
 
     #[test]
-    fn events_newest_first() {
-        let commits = [
+    fn events_newest_first_with_diffstat_and_short_sha() {
+        let mut commits = [
             commit("s1", "create: willow", "2026-01-01T00:00:00Z", vec![FileChange::Added("src/willow.md".into())]),
-            commit("s2", "update: fix", "2026-01-03T00:00:00Z", vec![FileChange::Modified("src/willow.md".into())]),
+            commit("0123456789abcdef", "update: fix", "2026-01-03T00:00:00Z", vec![FileChange::Modified("src/willow.md".into())]),
         ];
+        commits[1].stats.push(FileStat { path: "src/willow.md".into(), added: 4, deleted: 2 });
         let model = build_model(&commits, "src");
         let html = events(&model, None);
 
         assert!(html.contains("/article/willow/"));
         assert!(html.find("update").unwrap() < html.find("create").unwrap());
+        assert!(html.contains("<span class=\"add\">+4</span> <span class=\"del\">−2</span>"));
+        assert!(html.contains("href=\"/changes/by-sha/0123456789abcdef/\">0123456</a>"));
     }
 
     #[test]

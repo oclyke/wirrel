@@ -13,18 +13,95 @@ pub const DEFAULT_STYLESHEET: &str = include_str!("default.css");
 
 const SCRIPT: &str = include_str!("copy.js");
 
-/// The head every shell shares, stylesheet links included — those links are
-/// why a page never has to know how deep it sits. The base sheet comes first so
-/// the site's own overrides it.
-fn head_common() -> String {
-    format!(
-        "<meta charset=\"utf-8\">\n\
-         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
-         <link rel=\"stylesheet\" href=\"{}\">\n\
-         <link rel=\"stylesheet\" href=\"{}\">\n",
-        routes::base_stylesheet(),
-        routes::stylesheet()
-    )
+/// What every page's `<head>` carries beyond its title: at present, only an
+/// optional favicon. Absolute, since the icon may live on another host.
+#[derive(Debug, Default, Clone)]
+pub struct Shell {
+    pub favicon: Option<String>,
+}
+
+impl Shell {
+    /// The head every shell shares, stylesheet links included — those links
+    /// are why a page never has to know how deep it sits. The base sheet comes
+    /// first so the site's own overrides it.
+    fn head_common(&self) -> String {
+        let icon = match &self.favicon {
+            Some(url) => format!("<link rel=\"icon\" href=\"{}\">\n", escape(url)),
+            None => String::new(),
+        };
+        format!(
+            "<meta charset=\"utf-8\">\n\
+             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+             {icon}\
+             <link rel=\"stylesheet\" href=\"{}\">\n\
+             <link rel=\"stylesheet\" href=\"{}\">\n",
+            routes::base_stylesheet(),
+            routes::stylesheet()
+        )
+    }
+
+    /// Minimal HTML shell. Carries no canonical tag: every page is served at
+    /// one address and links to it root-relatively, so a self-referential
+    /// canonical would only restate the URL the crawler already followed. The
+    /// stub pages are the exception — see `stub_page`.
+    pub fn page(&self, title: &str, body: &str) -> String {
+        let title = escape(title);
+        format!(
+            "<!doctype html>\n\
+             <html lang=\"en\">\n\
+             <head>\n\
+             {head}\
+             <title>{title}</title>\n\
+             </head>\n\
+             <body>\n{body}{tail}</body>\n\
+             </html>\n",
+            head = self.head_common(),
+            tail = tail()
+        )
+    }
+
+    /// Shell for a page that shouldn't be indexed and has no canonical address
+    /// of its own: the dead ends.
+    pub fn dead_end_page(&self, title: &str, body: &str) -> String {
+        let title = escape(title);
+        format!(
+            "<!doctype html>\n\
+             <html lang=\"en\">\n\
+             <head>\n\
+             {head}\
+             <meta name=\"robots\" content=\"noindex\">\n\
+             <title>{title}</title>\n\
+             </head>\n\
+             <body>\n{body}{tail}</body>\n\
+             </html>\n",
+            head = self.head_common(),
+            tail = tail()
+        )
+    }
+
+    /// A page whose only job is to name another address: canonical there, a
+    /// refresh for browsers, and a visible link for everything else. Lets the
+    /// id permalink resolve on a host that can't be told about redirects. This
+    /// canonical points at the article rather than at itself, so the permalink
+    /// never competes with the article it stands in for — the one canonical
+    /// tag the site still needs.
+    pub fn stub_page(&self, title: &str, target: &str) -> String {
+        let title = escape(title);
+        format!(
+            "<!doctype html>\n\
+             <html lang=\"en\">\n\
+             <head>\n\
+             {head}\
+             <meta http-equiv=\"refresh\" content=\"0; url={target}\">\n\
+             <title>{title}</title>\n\
+             <link rel=\"canonical\" href=\"{target}\">\n\
+             </head>\n\
+             <body>\n<p><a href=\"{target}\">{target}</a></p>\n{tail}</body>\n\
+             </html>\n",
+            head = self.head_common(),
+            tail = tail()
+        )
+    }
 }
 
 /// The script every shell ends its body with. Last, so it never holds up
@@ -79,91 +156,44 @@ pub fn meta_header(id: Id, created: &str, updated: &str) -> String {
     )
 }
 
-/// Minimal HTML shell. Carries no canonical tag: every page is served at one
-/// address and links to it root-relatively, so a self-referential canonical
-/// would only restate the URL the crawler already followed. The stub pages are
-/// the exception — see `stub_page`.
-pub fn page(title: &str, body: &str) -> String {
-    let title = escape(title);
-    format!(
-        "<!doctype html>\n\
-         <html lang=\"en\">\n\
-         <head>\n\
-         {head}\
-         <title>{title}</title>\n\
-         </head>\n\
-         <body>\n{body}{tail}</body>\n\
-         </html>\n",
-        head = head_common(),
-        tail = tail()
-    )
-}
-
-/// Shell for a page that shouldn't be indexed and has no canonical address of
-/// its own: the dead ends.
-pub fn dead_end_page(title: &str, body: &str) -> String {
-    let title = escape(title);
-    format!(
-        "<!doctype html>\n\
-         <html lang=\"en\">\n\
-         <head>\n\
-         {head}\
-         <meta name=\"robots\" content=\"noindex\">\n\
-         <title>{title}</title>\n\
-         </head>\n\
-         <body>\n{body}{tail}</body>\n\
-         </html>\n",
-        head = head_common(),
-        tail = tail()
-    )
-}
-
-/// A page whose only job is to name another address: canonical there, a refresh
-/// for browsers, and a visible link for everything else. Lets the id permalink
-/// resolve on a host that can't be told about redirects. This canonical points
-/// at the article rather than at itself, so the permalink never competes with
-/// the article it stands in for — the one canonical tag the site still needs.
-pub fn stub_page(title: &str, target: &str) -> String {
-    let title = escape(title);
-    format!(
-        "<!doctype html>\n\
-         <html lang=\"en\">\n\
-         <head>\n\
-         {head}\
-         <meta http-equiv=\"refresh\" content=\"0; url={target}\">\n\
-         <title>{title}</title>\n\
-         <link rel=\"canonical\" href=\"{target}\">\n\
-         </head>\n\
-         <body>\n<p><a href=\"{target}\">{target}</a></p>\n{tail}</body>\n\
-         </html>\n",
-        head = head_common(),
-        tail = tail()
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shells(shell: &Shell) -> [String; 3] {
+        [shell.page("t", "b"), shell.dead_end_page("t", "b"), shell.stub_page("t", "/x/")]
+    }
 
     #[test]
     fn every_shell_links_base_then_site_stylesheet() {
         let links = "<link rel=\"stylesheet\" href=\"/assets/wirrel.css\">\n\
                      <link rel=\"stylesheet\" href=\"/assets/style.css\">";
-        assert!(page("t", "b").contains(links));
-        assert!(dead_end_page("t", "b").contains(links));
-        assert!(stub_page("t", "/x/").contains(links));
+        for html in shells(&Shell::default()) {
+            assert!(html.contains(links));
+        }
     }
 
     #[test]
     fn every_shell_ends_with_the_script() {
-        for html in [page("t", "b"), dead_end_page("t", "b"), stub_page("t", "/x/")] {
+        for html in shells(&Shell::default()) {
             assert!(html.ends_with("</script>\n</body>\n</html>\n"), "{html}");
         }
     }
 
     #[test]
+    fn favicon_is_linked_only_when_given() {
+        for html in shells(&Shell::default()) {
+            assert!(!html.contains("rel=\"icon\""));
+        }
+        let shell = Shell { favicon: Some("https://cdn.example/a&b.png".into()) };
+        for html in shells(&shell) {
+            assert!(html.contains("<link rel=\"icon\" href=\"https://cdn.example/a&amp;b.png\">"));
+        }
+    }
+
+    #[test]
     fn stub_points_at_its_target() {
-        let html = stub_page("id 3", "/article/willow/");
+        let html = Shell::default().stub_page("id 3", "/article/willow/");
         assert!(html.contains("url=/article/willow/"));
         assert!(html.contains("rel=\"canonical\" href=\"/article/willow/\""));
         assert!(html.contains("<a href=\"/article/willow/\">"));

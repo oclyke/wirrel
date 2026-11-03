@@ -41,6 +41,11 @@ struct Cli {
     #[arg(long, env = "WIRREL_GRAMMARS", default_value = "./grammars", global = true)]
     grammars: String,
 
+    /// URL of the favicon every page links, if any. Absolute, so the icon can
+    /// live on a CDN; wirrel never copies it.
+    #[arg(long, env = "WIRREL_FAVICON", global = true)]
+    favicon: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -393,6 +398,7 @@ fn cmd_redirects(cli: &Cli) -> Result<(), Box<dyn Error>> {
 fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     let grammars = load_grammars(cli);
     let (commits, model) = load_valid_model(cli, &grammars)?;
+    let shell = html::Shell { favicon: cli.favicon.clone() };
     fs::create_dir_all(out)?;
     write_assets(&cli.repo.join(&cli.assets), out)?;
 
@@ -403,14 +409,15 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         let title = a.title();
         let route = routes::article(&a.slug);
         let body = format!("{header}{rendered}");
-        write_route(out, &route, &html::page(&title, &body))?;
+        write_route(out, &route, &shell.page(&title, &body))?;
 
         // The id is the permanent handle; the stub makes it resolve even where
         // the redirect map can't be installed.
         let by_id = routes::article_by_id(a.id);
-        write_route(out, &by_id, &html::stub_page(&format!("id {}", a.id), &route))?;
+        write_route(out, &by_id, &shell.stub_page(&format!("id {}", a.id), &route))?;
 
         write_page(
+            &shell,
             out,
             &routes::changes_for(a.id),
             &format!("changes: {title}"),
@@ -421,21 +428,17 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     write_route(
         out,
         &routes::index(),
-        &html::page("index", &index_page::body(&model, INDEX_RECENT)),
+        &shell.page("index", &index_page::body(&model, INDEX_RECENT)),
     )?;
     write_page(
-        out,
-        &routes::articles_by_path(),
-        "articles by path",
-        &articles_page::by_path(&model),
-    )?;
-    write_page(
+        &shell,
         out,
         &routes::articles_by_id(),
         "articles by id",
         &articles_page::by_id(&model),
     )?;
     write_page(
+        &shell,
         out,
         &routes::changelog(),
         "changelog",
@@ -450,7 +453,7 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         write_route(
             out,
             &routes::article(slug),
-            &html::dead_end_page(
+            &shell.dead_end_page(
                 "this article has moved",
                 &format!("{nav}{}", gone_page::moved_body()),
             ),
@@ -458,7 +461,7 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
     }
     fs::write(
         out.join("404.html"),
-        html::dead_end_page("no such article", &format!("{nav}{}", gone_page::missing_body())),
+        shell.dead_end_page("no such article", &format!("{nav}{}", gone_page::missing_body())),
     )?;
 
     // A page per commit that touched an article, so every changelog row lands
@@ -471,6 +474,7 @@ fn cmd_build(cli: &Cli, out: &Path) -> Result<(), Box<dyn Error>> {
         }
         let diff = git::commit_diff(&cli.repo, &c.sha)?;
         write_page(
+            &shell,
             out,
             &routes::change(&c.sha),
             &format!("{}: {}", subject.kind.label(), subject.description),
@@ -527,13 +531,14 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), Box<dyn Error>> {
 /// at its route. The index itself and the articles (which carry their own
 /// header) bypass this.
 fn write_page(
+    shell: &html::Shell,
     out: &Path,
     route: &str,
     title: &str,
     body: &str,
 ) -> Result<(), Box<dyn Error>> {
     let body = format!("{}{body}", html::nav_header());
-    write_route(out, route, &html::page(title, &body))?;
+    write_route(out, route, &shell.page(title, &body))?;
     Ok(())
 }
 

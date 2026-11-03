@@ -214,7 +214,6 @@ fn every_page_but_the_index_links_back_to_it() {
         out.join("changes/by-id/1/index.html"),
         sha.path().join("index.html"),
         out.join("changelog/index.html"),
-        out.join("articles/by-path/index.html"),
         out.join("articles/by-id/index.html"),
         out.join("article/direction/index.html"),
         out.join("404.html"),

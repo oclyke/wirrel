@@ -33,10 +33,6 @@ pub fn index() -> String {
     "/".into()
 }
 
-pub fn articles_by_path() -> String {
-    "/articles/by-path/".into()
-}
-
 pub fn articles_by_id() -> String {
     "/articles/by-id/".into()
 }

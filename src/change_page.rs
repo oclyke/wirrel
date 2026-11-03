@@ -76,6 +76,7 @@ mod tests {
             body: String::new(),
             date: "2026-01-01T00:00:00Z".into(),
             changed: vec![FileChange::Added("src/willow.md".into())],
+            stats: Vec::new(),
         }];
         let model = build_model(&commits, "src");
         let subject = parse_subject("update: typo fix").unwrap();

@@ -25,7 +25,8 @@ fn loads_and_parses_history() {
     git(repo, &["config", "user.email", "t@t.dev"]);
     git(repo, &["config", "user.name", "t"]);
 
-    fs::write(repo.join("src/willow.md"), "# willow\n").unwrap();
+    let prose = "# willow\n".to_string() + &"a line of prose\n".repeat(8);
+    fs::write(repo.join("src/willow.md"), &prose).unwrap();
     git(repo, &["add", "-A"]);
     git(repo, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "create: the willow"]);
 
@@ -36,6 +37,21 @@ fn loads_and_parses_history() {
         commits[0].changed.as_slice(),
         [wirrel::git::FileChange::Added(p)] if p == "src/willow.md"
     ));
+    assert_eq!(
+        commits[0].stats,
+        [wirrel::git::FileStat { path: "src/willow.md".into(), added: 9, deleted: 0 }]
+    );
+
+    // A rename's stat is keyed by the path the file has afterwards.
+    git(repo, &["mv", "src/willow.md", "src/oak.md"]);
+    fs::write(repo.join("src/oak.md"), prose.replace("# willow", "# oak")).unwrap();
+    git(repo, &["add", "-A"]);
+    git(repo, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "move: to oak"]);
+    let commits = wirrel::git::load(repo).unwrap();
+    assert_eq!(
+        commits[1].stats,
+        [wirrel::git::FileStat { path: "src/oak.md".into(), added: 1, deleted: 1 }]
+    );
 }
 
 #[test]
